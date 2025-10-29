@@ -153,6 +153,16 @@ public class LootTrackingService : IDisposable
                 itemName = CleanItemName(itemName);
                 itemName = ToTitleCase(itemName);
                 itemData = FindItemByName(itemName);
+                
+                if (itemData.HasValue)
+                {
+                    Plugin.Log.Info("Item found by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                        itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
+                }
+                else
+                {
+                    Plugin.Log.Warning("Item not found by name: '{ItemName}'", itemName);
+                }
             }
             
             var lootItem = new LootItem
