@@ -241,7 +241,7 @@ public class LootTrackingService : IDisposable
             {
                 var iconId = item.Icon;
                 var itemName = item.Name.ExtractText();
-                Plugin.Log.Debug("Found item: ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, iconId, itemName);
+                Plugin.Log.Info("Found item: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", item.RowId, iconId, itemName, item.Rarity);
                 return (item.RowId, iconId, item.Rarity, itemName);
             }
             
