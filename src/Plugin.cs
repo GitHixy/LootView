@@ -57,14 +57,9 @@ public sealed class Plugin : IDalamudPlugin
             ConfigWindow = new ConfigWindow(this, ConfigService);
 
             // Register commands
-            CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-            {
-                HelpMessage = "Opens the LootView window. Use '/lootview config' to open configuration."
-            });
-
             CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand)
             {
-                HelpMessage = "Opens the LootView window (short version). Use '/lv config' to open configuration."
+                HelpMessage = "Toggle LootView window\n→ /lv config - Open settings"
             });
 
             // Register windows with plugin interface
@@ -110,7 +105,6 @@ public sealed class Plugin : IDalamudPlugin
             ConfigWindow?.Dispose();
 
             // Remove commands
-            CommandManager.RemoveHandler(CommandName);
             CommandManager.RemoveHandler(CommandAlt);
 
             Log.Info("LootView plugin disposed successfully!");
@@ -127,31 +121,13 @@ public sealed class Plugin : IDalamudPlugin
         {
             var arguments = args.Trim().ToLower();
 
-            switch (arguments)
+            if (arguments == "config")
             {
-                case "config":
-                case "settings":
-                    OpenConfigUi();
-                    break;
-                case "toggle":
-                    ToggleMainWindow();
-                    break;
-                case "show":
-                    ShowMainWindow();
-                    break;
-                case "hide":
-                    HideMainWindow();
-                    break;
-                case "clear":
-                    LootTracker.ClearHistory();
-                    ChatGui.Print("[LootView] Loot history cleared.");
-                    break;
-                case "help":
-                    ShowHelp();
-                    break;
-                default:
-                    ToggleMainWindow();
-                    break;
+                OpenConfigUi();
+            }
+            else
+            {
+                ToggleMainWindow();
             }
         }
         catch (Exception ex)
@@ -191,20 +167,6 @@ public sealed class Plugin : IDalamudPlugin
         ConfigService.Save();
     }
 
-    private void ShowMainWindow()
-    {
-        LootWindow.IsOpen = true;
-        ConfigService.Configuration.IsVisible = true;
-        ConfigService.Save();
-    }
-
-    private void HideMainWindow()
-    {
-        LootWindow.IsOpen = false;
-        ConfigService.Configuration.IsVisible = false;
-        ConfigService.Save();
-    }
-
     private void OnLogin()
     {
         try
@@ -221,15 +183,5 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    private void ShowHelp()
-    {
-        ChatGui.Print("[LootView] Available commands:");
-        ChatGui.Print("  /lootview or /lv - Toggle the loot window");
-        ChatGui.Print("  /lootview config - Open configuration window");
-        ChatGui.Print("  /lootview show - Show the loot window");
-        ChatGui.Print("  /lootview hide - Hide the loot window");
-        ChatGui.Print("  /lootview clear - Clear loot history");
-        ChatGui.Print("  /lootview toggle - Toggle the loot window");
-        ChatGui.Print("  /lootview help - Show this help message");
-    }
+
 }
