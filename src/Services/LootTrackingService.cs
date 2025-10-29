@@ -69,7 +69,7 @@ public class LootTrackingService : IDisposable
             // Detect "You obtain" messages
             if (messageText.Contains("You obtain"))
             {
-                ProcessObtainMessage(messageText);
+                ProcessObtainMessage(messageText, message);
             }
         }
         catch (Exception ex)
@@ -78,23 +78,37 @@ public class LootTrackingService : IDisposable
         }
     }
 
-    private void ProcessObtainMessage(string message)
+    private void ProcessObtainMessage(string messageText, SeString message)
     {
         try
         {
             var localPlayer = Plugin.ClientState.LocalPlayer;
             if (localPlayer == null) return;
 
+            // Try to extract item ID from SeString payload (for linked items)
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    break;
+                }
+            }
+
             // Parse "You obtain X ItemName." or "You obtain X ItemName HQ."
             // Example: "You obtain 3 wind shards."
             // Example: "You obtain a potion."
             
-            string itemName = "Unknown Item";
+            string itemName = itemNameFromPayload;
             uint quantity = 1;
-            bool isHQ = message.Contains(" HQ");
+            bool isHQ = messageText.Contains(" HQ");
             
             // Remove "You obtain " from the start
-            var remaining = message.Replace("You obtain ", "").Trim();
+            var remaining = messageText.Replace("You obtain ", "").Trim();
             
             // Check for quantity (number at start)
             var parts = remaining.Split(' ', 2);
@@ -120,14 +134,25 @@ public class LootTrackingService : IDisposable
                 itemName = itemName.Replace(" HQ", "").Trim();
             }
             
-            // Format with title case (capitalize first letter of each word)
-            itemName = ToTitleCase(itemName);
+            // If we have item ID from payload, use it directly; otherwise try to find by name
+            (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
             
-            // Remove any link/special characters that might be in the item name
-            itemName = CleanItemName(itemName);
-
-            // Try to find the item in game data
-            var itemData = FindItemByName(itemName);
+            if (itemIdFromPayload.HasValue)
+            {
+                // We have the item ID from the link payload - get data directly
+                itemData = GetItemDataById(itemIdFromPayload.Value);
+                if (itemData.HasValue)
+                {
+                    itemName = itemData.Value.Name;
+                }
+            }
+            else
+            {
+                // No payload, clean and search by name
+                itemName = CleanItemName(itemName);
+                itemName = ToTitleCase(itemName);
+                itemData = FindItemByName(itemName);
+            }
             
             var lootItem = new LootItem
             {
@@ -182,6 +207,26 @@ public class LootTrackingService : IDisposable
             }
         }
         return string.Join(" ", words);
+    }
+    
+    private (uint ItemId, uint IconId, uint Rarity, string Name)? GetItemDataById(uint itemId)
+    {
+        try
+        {
+            var itemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+            if (itemSheet == null) return null;
+            
+            if (itemSheet.TryGetRow(itemId, out var item))
+            {
+                return (item.RowId, item.Icon, item.Rarity, item.Name.ExtractText());
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error getting item data by ID: {ItemId}", itemId);
+        }
+        
+        return null;
     }
     
     private string CleanItemName(string itemName)
