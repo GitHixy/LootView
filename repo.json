@@ -1,0 +1,33 @@
+[
+  {
+    "Author": "GitHixy",
+    "Name": "LootView",
+    "InternalName": "LootView",
+    "AssemblyVersion": "1.0.0.0",
+    "Punchline": "Loot Tracking for FFXIV",
+    "Description": "A customizable loot tracking window with item icons, rarity colors, and highlight animations. Shows who loots what and can be filtered to show only your loot.",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 13,
+    "LoadPriority": 0,
+    "CanUnloadAsync": false,
+    "RepoUrl": "https://github.com/GitHixy/LootView",
+    "DownloadLinkInstall": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
+    "DownloadLinkTesting": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
+    "DownloadLinkUpdate": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
+    "DownloadCount": 0,
+    "LastUpdated": "2025-10-29T00:00:00Z",
+    "Tags": [
+      "loot",
+      "tracking",
+      "ui",
+      "drops",
+      "party"
+    ],
+    "CategoryTags": [
+      "utility",
+      "ui"
+    ],
+    "IsHide": false,
+    "IsTestingExclusive": false
+  }
+]

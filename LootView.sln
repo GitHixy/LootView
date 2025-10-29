@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LootView", "LootView.csproj", "{71BE718F-645D-EBBB-46D4-09F74389CF23}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{71BE718F-645D-EBBB-46D4-09F74389CF23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{71BE718F-645D-EBBB-46D4-09F74389CF23}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{71BE718F-645D-EBBB-46D4-09F74389CF23}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{71BE718F-645D-EBBB-46D4-09F74389CF23}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C1FFEFCF-89E9-46F2-98D0-FE9B69201D62}
+	EndGlobalSection
+EndGlobal
