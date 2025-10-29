@@ -11,6 +11,7 @@
     "LoadPriority": 0,
     "CanUnloadAsync": false,
     "RepoUrl": "https://github.com/GitHixy/LootView",
+    "IconUrl": "https://raw.githubusercontent.com/GitHixy/LootView/main/icon.png",
     "DownloadLinkInstall": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadLinkTesting": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadLinkUpdate": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
