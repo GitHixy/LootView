@@ -95,6 +95,7 @@ public class LootTrackingService : IDisposable
                 {
                     itemIdFromPayload = itemPayload.ItemId;
                     itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug("Found item payload: ID={ItemId}, Name={Name}", itemPayload.ItemId, itemPayload.DisplayName);
                     break;
                 }
             }
@@ -216,10 +217,35 @@ public class LootTrackingService : IDisposable
             var itemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>();
             if (itemSheet == null) return null;
             
-            if (itemSheet.TryGetRow(itemId, out var item))
+            // Items in FFXIV have a special encoding for different types:
+            // Regular items: just the ID
+            // HQ items: ID > 500000 (ID + 500000)
+            // Collectables: ID > 500000
+            // Event items/currencies: might be in a different range
+            
+            var actualItemId = itemId;
+            
+            // Strip HQ flag if present (items over 500000 are HQ versions)
+            if (itemId > 500000)
             {
-                return (item.RowId, item.Icon, item.Rarity, item.Name.ExtractText());
+                actualItemId = itemId - 500000;
             }
+            
+            // Also check for event item flag (1000000+)
+            if (itemId > 1000000)
+            {
+                actualItemId = itemId % 1000000;
+            }
+            
+            if (itemSheet.TryGetRow(actualItemId, out var item))
+            {
+                var iconId = item.Icon;
+                var itemName = item.Name.ExtractText();
+                Plugin.Log.Debug("Found item: ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, iconId, itemName);
+                return (item.RowId, iconId, item.Rarity, itemName);
+            }
+            
+            Plugin.Log.Warning("Could not find item with ID: {ItemId} (tried: {ActualItemId})", itemId, actualItemId);
         }
         catch (Exception ex)
         {
