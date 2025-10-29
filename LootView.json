@@ -3,7 +3,7 @@
   "Name": "LootView",
   "Punchline": "Loot Tracking for FFXIV",
   "InternalName": "LootView",
-  "AssemblyVersion": "1.0.1.0",
+  "AssemblyVersion": "1.0.2.0",
   "Description": "A loot tracking window for FFXIV.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,
