@@ -1,10 +1,10 @@
 {
   "Author": "GitHixy",
   "Name": "LootView",
-  "Punchline": "Fancy loot tracking for FFXIV",
+  "Punchline": "Loot Tracking for FFXIV",
   "InternalName": "LootView",
   "AssemblyVersion": "1.0.0.0",
-  "Description": "A customizable loot tracking window that displays everything you drop in a fancy way. Shows who loots what and can be filtered to show only your loot or comprehensive loot information.",
+  "Description": "A loot tracking window for FFXIV.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,
   "LoadPriority": 0,
