@@ -3,7 +3,7 @@
     "Author": "GitHixy",
     "Name": "LootView",
     "InternalName": "LootView",
-    "AssemblyVersion": "1.0.3.0",
+    "AssemblyVersion": "1.0.4.0",
     "Punchline": "Loot Tracking for FFXIV",
     "Description": "A customizable loot tracking window with item icons, rarity colors, and highlight animations. Shows who loots what and can be filtered to show only your loot.",
     "ApplicableVersion": "any",

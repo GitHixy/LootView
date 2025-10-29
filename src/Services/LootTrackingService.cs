@@ -288,27 +288,82 @@ public class LootTrackingService : IDisposable
             var itemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>();
             if (itemSheet == null) return null;
             
+            Plugin.Log.Info("Searching for item: '{ItemName}'", itemName);
+            
             // Search for item by name (case insensitive)
             var searchName = itemName.ToLower();
+            
+            // Try exact match first
             foreach (var item in itemSheet)
             {
                 var itemNameStr = item.Name.ExtractText();
                 if (itemNameStr.Equals(searchName, StringComparison.OrdinalIgnoreCase))
                 {
+                    Plugin.Log.Info("Found item (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                     return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                 }
             }
             
-            // If exact match not found, try partial match
+            // Try without 's' at the end (plural -> singular)
+            if (searchName.EndsWith("s") && searchName.Length > 2)
+            {
+                var singularName = searchName.Substring(0, searchName.Length - 1);
+                Plugin.Log.Info("Trying singular form: '{SingularName}'", singularName);
+                foreach (var item in itemSheet)
+                {
+                    var itemNameStr = item.Name.ExtractText();
+                    if (itemNameStr.Equals(singularName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Plugin.Log.Info("Found item (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        return (item.RowId, item.Icon, item.Rarity, itemNameStr);
+                    }
+                }
+            }
+            
+            // Try EventItem sheet for special currencies
+            var eventItemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.EventItem>();
+            if (eventItemSheet != null)
+            {
+                Plugin.Log.Info("Searching EventItem sheet...");
+                foreach (var item in eventItemSheet)
+                {
+                    var itemNameStr = item.Name.ExtractText();
+                    if (itemNameStr.Equals(searchName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Plugin.Log.Info("Found EventItem (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        return (item.RowId, item.Icon, 1, itemNameStr);
+                    }
+                }
+                
+                // Try singular for EventItem
+                if (searchName.EndsWith("s") && searchName.Length > 2)
+                {
+                    var singularName = searchName.Substring(0, searchName.Length - 1);
+                    foreach (var item in eventItemSheet)
+                    {
+                        var itemNameStr = item.Name.ExtractText();
+                        if (itemNameStr.Equals(singularName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Plugin.Log.Info("Found EventItem (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                            return (item.RowId, item.Icon, 1, itemNameStr);
+                        }
+                    }
+                }
+            }
+            
+            // Last resort: partial match
             foreach (var item in itemSheet)
             {
                 var itemNameStr = item.Name.ExtractText();
                 if (!string.IsNullOrWhiteSpace(itemNameStr) && 
                     itemNameStr.Contains(searchName, StringComparison.OrdinalIgnoreCase))
                 {
+                    Plugin.Log.Info("Found item (partial): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                     return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                 }
             }
+            
+            Plugin.Log.Warning("Item not found: '{ItemName}'", itemName);
         }
         catch (Exception ex)
         {
