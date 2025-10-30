@@ -66,8 +66,10 @@ public class LootTrackingService : IDisposable
                 Plugin.Log.Debug($"Chat [{type}]: {messageText}");
             }
             
-            // Detect "You obtain" messages
-            if (messageText.Contains("You obtain"))
+            // Detect loot messages:
+            // - "You obtain X ItemName" (your loot)
+            // - "PlayerName obtains X ItemName" (party member loot)
+            if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
             {
                 ProcessObtainMessage(messageText, message);
             }
@@ -100,16 +102,43 @@ public class LootTrackingService : IDisposable
                 }
             }
 
-            // Parse "You obtain X ItemName." or "You obtain X ItemName HQ."
-            // Example: "You obtain 3 wind shards."
-            // Example: "You obtain a potion."
+            // Parse loot messages:
+            // - "You obtain X ItemName" (your loot)
+            // - "PlayerName obtains X ItemName" (party member loot)
             
             string itemName = itemNameFromPayload;
+            string playerName;
+            bool isOwnLoot;
             uint quantity = 1;
             bool isHQ = messageText.Contains(" HQ");
             
-            // Remove "You obtain " from the start
-            var remaining = messageText.Replace("You obtain ", "").Trim();
+            string remaining;
+            
+            if (messageText.StartsWith("You obtain "))
+            {
+                // Your loot
+                playerName = localPlayer.Name.TextValue;
+                isOwnLoot = true;
+                remaining = messageText.Replace("You obtain ", "").Trim();
+            }
+            else
+            {
+                // Party member loot: "PlayerName obtains X ItemName"
+                var obtainsIndex = messageText.IndexOf(" obtains ");
+                if (obtainsIndex > 0)
+                {
+                    playerName = messageText.Substring(0, obtainsIndex).Trim();
+                    isOwnLoot = playerName.Equals(localPlayer.Name.TextValue, StringComparison.OrdinalIgnoreCase);
+                    remaining = messageText.Substring(obtainsIndex + " obtains ".Length).Trim();
+                }
+                else
+                {
+                    // Fallback
+                    playerName = localPlayer.Name.TextValue;
+                    isOwnLoot = true;
+                    remaining = messageText.Replace("You obtain ", "").Trim();
+                }
+            }
             
             // Check for quantity (number at start)
             var parts = remaining.Split(' ', 2);
@@ -173,9 +202,9 @@ public class LootTrackingService : IDisposable
                 Rarity = itemData?.Rarity ?? 1,
                 Quantity = quantity,
                 IsHQ = isHQ,
-                PlayerName = localPlayer.Name.TextValue,
-                PlayerContentId = Plugin.ClientState.LocalContentId,
-                IsOwnLoot = true,
+                PlayerName = playerName,
+                PlayerContentId = isOwnLoot ? Plugin.ClientState.LocalContentId : 0,
+                IsOwnLoot = isOwnLoot,
                 Source = LootSource.Unknown,
                 TerritoryType = Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName()
@@ -183,7 +212,7 @@ public class LootTrackingService : IDisposable
 
             AddLootItem(lootItem);
             
-            Plugin.Log.Info($"Loot tracked: {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
+            Plugin.Log.Info($"Loot tracked: {playerName} obtained {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
         }
         catch (Exception ex)
         {
