@@ -151,7 +151,7 @@ public class LootTrackingService : IDisposable
             {
                 // No payload, clean and search by name
                 itemName = CleanItemName(itemName);
-                itemName = ToTitleCase(itemName);
+                // Don't use ToTitleCase - game item names have specific capitalization
                 itemData = FindItemByName(itemName);
                 
                 if (itemData.HasValue)
