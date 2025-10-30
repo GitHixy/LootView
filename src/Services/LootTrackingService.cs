@@ -158,10 +158,89 @@ public class LootTrackingService : IDisposable
             
             // Check for quantity (number at start)
             var parts = remaining.Split(' ', 2);
-            if (parts.Length >= 2 && uint.TryParse(parts[0], out var parsedQty))
+            if (parts.Length >= 2)
             {
-                quantity = parsedQty;
-                itemName = parts[1].TrimEnd('.', ' ');
+                string quantityPart = parts[0];
+                
+                // Handle bonus format: "54(+9)" -> extract total
+                if (quantityPart.Contains("(+") && quantityPart.Contains(")"))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(quantityPart, @"^(\d+)\(\+(\d+)\)$");
+                    if (match.Success)
+                    {
+                        var baseQty = uint.Parse(match.Groups[1].Value);
+                        var bonusQty = uint.Parse(match.Groups[2].Value);
+                        quantity = baseQty + bonusQty;
+                        itemName = parts[1].TrimEnd('.', ' ');
+                    }
+                }
+                // Handle comma-separated numbers: "1,000" -> 1000
+                else if (quantityPart.Contains(","))
+                {
+                    var cleanedQty = quantityPart.Replace(",", "");
+                    if (uint.TryParse(cleanedQty, out var parsedQty))
+                    {
+                        quantity = parsedQty;
+                        itemName = parts[1].TrimEnd('.', ' ');
+                    }
+                }
+                // Handle regular number
+                else if (uint.TryParse(quantityPart, out var parsedQty))
+                {
+                    quantity = parsedQty;
+                    var rest = parts[1];
+                    
+                    // Check if the next part is a unit word: "2 chunks of ItemName"
+                    var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
+                                           "bottles of ", "bottle of ", "pieces of ", "piece of " };
+                    foreach (var unit in unitWords)
+                    {
+                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            rest = rest.Substring(unit.Length);
+                            break;
+                        }
+                    }
+                    
+                    itemName = rest.TrimEnd('.', ' ');
+                }
+                // Handle "a chunk of ItemName" / "chunks of ItemName" etc.
+                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) || 
+                         quantityPart.Equals("an", StringComparison.OrdinalIgnoreCase))
+                {
+                    quantity = 1;
+                    var rest = parts[1];
+                    
+                    // Remove unit words like "chunk of", "pinch of", "bottle of"
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of " };
+                    foreach (var unit in unitWords)
+                    {
+                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            rest = rest.Substring(unit.Length);
+                            break;
+                        }
+                    }
+                    
+                    itemName = rest.TrimEnd('.', ' ');
+                }
+                // Handle "chunks of ItemName" / "pinches of ItemName" etc. (plural with no number)
+                else if (quantityPart.Equals("chunks", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("pinches", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("bottles", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("pieces", StringComparison.OrdinalIgnoreCase))
+                {
+                    quantity = 1; // Default to 1 if no number specified
+                    var rest = parts[1];
+                    
+                    // Remove "of "
+                    if (rest.StartsWith("of ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rest = rest.Substring(3);
+                    }
+                    
+                    itemName = rest.TrimEnd('.', ' ');
+                }
             }
             else if (remaining.StartsWith("a ") || remaining.StartsWith("an "))
             {
