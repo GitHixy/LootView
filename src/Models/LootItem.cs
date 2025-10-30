@@ -90,5 +90,7 @@ public enum LootSource
     Quest,
     Crafting,
     Purchase,
+    Extraction,
+    Exchange,
     Other
 }

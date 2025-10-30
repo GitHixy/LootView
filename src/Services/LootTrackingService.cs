@@ -69,9 +69,19 @@ public class LootTrackingService : IDisposable
             // Detect loot messages:
             // - "You obtain X ItemName" (your loot)
             // - "PlayerName obtains X ItemName" (party member loot)
+            // - "You have successfully extracted a ItemName" (aetherial reduction, desynthesis)
+            // - "You exchange X ItemName for a ItemName" (vendor trades)
             if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
             {
                 ProcessObtainMessage(messageText, message);
+            }
+            else if (messageText.Contains("successfully extract"))
+            {
+                ProcessExtractionMessage(messageText, message);
+            }
+            else if (messageText.Contains("You exchange") && messageText.Contains(" for "))
+            {
+                ProcessExchangeMessage(messageText, message);
             }
         }
         catch (Exception ex)
@@ -124,10 +134,16 @@ public class LootTrackingService : IDisposable
             else
             {
                 // Party member loot: "PlayerName obtains X ItemName"
+                // May include server name for cross-world players: "PlayerName WorldName obtains..."
                 var obtainsIndex = messageText.IndexOf(" obtains ");
                 if (obtainsIndex > 0)
                 {
                     playerName = messageText.Substring(0, obtainsIndex).Trim();
+                    
+                    // Remove server name if present (cross-world players show as "Name ServerName")
+                    // Server names are typically capitalized single words after the player name
+                    playerName = CleanPlayerName(playerName);
+                    
                     isOwnLoot = playerName.Equals(localPlayer.Name.TextValue, StringComparison.OrdinalIgnoreCase);
                     remaining = messageText.Substring(obtainsIndex + " obtains ".Length).Trim();
                 }
@@ -334,7 +350,8 @@ public class LootTrackingService : IDisposable
             }
             
             // Try without 's' at the end (plural -> singular)
-            if (searchName.EndsWith("s") && searchName.Length > 2)
+            // Case-insensitive check for 's' or 'S' at the end
+            if (searchName.Length > 2 && (searchName.EndsWith("s", StringComparison.OrdinalIgnoreCase)))
             {
                 var singularName = searchName.Substring(0, searchName.Length - 1);
                 Plugin.Log.Info("Trying singular form: '{SingularName}'", singularName);
@@ -365,7 +382,8 @@ public class LootTrackingService : IDisposable
                 }
                 
                 // Try singular for EventItem
-                if (searchName.EndsWith("s") && searchName.Length > 2)
+                // Case-insensitive check for 's' or 'S' at the end
+                if (searchName.Length > 2 && (searchName.EndsWith("s", StringComparison.OrdinalIgnoreCase)))
                 {
                     var singularName = searchName.Substring(0, searchName.Length - 1);
                     foreach (var item in eventItemSheet)
@@ -547,6 +565,185 @@ public class LootTrackingService : IDisposable
             }
 
             return filtered.Take(config.MaxDisplayedItems).ToList();
+        }
+    }
+
+    private string CleanPlayerName(string playerName)
+    {
+        // Remove server name suffix from cross-world players
+        // Example: "Elina KhojinSpriggan" -> "Elina Khojin"
+        
+        if (string.IsNullOrEmpty(playerName))
+            return playerName;
+
+        // List of known server names (expand as needed)
+        var servers = new[] { "Spriggan", "Phoenix", "Odin", "Shiva", "Lich", "Zodiark", "Twintania", "Ragnarok",
+                              "Cerberus", "Louisoix", "Moogle", "Omega", "Chaos", "Midgardsormr", "Adamantoise",
+                              "Cactuar", "Faerie", "Gilgamesh", "Jenova", "Sargatanas", "Siren", "Behemoth",
+                              "Excalibur", "Exodus", "Famfrit", "Hyperion", "Lamia", "Leviathan", "Ultros",
+                              "Balmung", "Brynhildr", "Coeurl", "Diabolos", "Goblin", "Malboro", "Mateus",
+                              "Zalera", "Aegis", "Atomos", "Carbuncle", "Garuda", "Gungnir", "Kujata",
+                              "Ramuh", "Tonberry", "Typhon", "Alexander", "Bahamut", "Durandal", "Fenrir",
+                              "Ifrit", "Ridill", "Tiamat", "Ultima", "Valefor", "Yojimbo", "Zeromus",
+                              "Anima", "Asura", "Belias", "Chocobo", "Hades", "Ixion", "Mandragora",
+                              "Masamune", "Pandaemonium", "Shinryu", "Titan", "Alpha", "Phantom", "Raiden",
+                              "Sagittarius" };
+
+        // Check if the player name ends with a server name (no space between)
+        foreach (var server in servers)
+        {
+            if (playerName.EndsWith(server, StringComparison.OrdinalIgnoreCase))
+            {
+                // Remove the server suffix
+                var cleanName = playerName.Substring(0, playerName.Length - server.Length);
+                
+                // Add space before the last word if it's missing
+                // Example: "ElinaKhojin" -> "Elina Khojin"
+                if (cleanName.Length > 0)
+                {
+                    // Find the last capital letter before the removed server
+                    for (int i = cleanName.Length - 1; i > 0; i--)
+                    {
+                        if (char.IsUpper(cleanName[i]) && i > 0)
+                        {
+                            cleanName = cleanName.Insert(i, " ");
+                            break;
+                        }
+                    }
+                }
+                
+                return cleanName.Trim();
+            }
+        }
+
+        // If no server suffix found, return as-is
+        return playerName;
+    }
+
+    private void ProcessExtractionMessage(string messageText, SeString message)
+    {
+        // Handle "You have successfully extracted a ItemName" or "extracted an ItemName"
+        try
+        {
+            // Try both "extracted a " and "extracted an "
+            int startIndex = messageText.IndexOf("extracted a ", StringComparison.OrdinalIgnoreCase);
+            if (startIndex == -1)
+            {
+                startIndex = messageText.IndexOf("extracted an ", StringComparison.OrdinalIgnoreCase);
+                if (startIndex != -1)
+                    startIndex += "extracted an ".Length;
+            }
+            else
+            {
+                startIndex += "extracted a ".Length;
+            }
+
+            if (startIndex == -1 || startIndex >= messageText.Length)
+                return;
+
+            // Get the item name (rest of the message after "extracted a/an")
+            string itemName = messageText.Substring(startIndex).Trim();
+            itemName = CleanItemName(itemName);
+
+            if (string.IsNullOrEmpty(itemName))
+                return;
+
+            // Try to find the item
+            var itemData = FindItemByName(itemName);
+            
+            if (itemData.HasValue)
+            {
+                var lootItem = new LootItem
+                {
+                    ItemName = itemData.Value.Name,
+                    ItemId = itemData.Value.ItemId,
+                    IconId = itemData.Value.IconId,
+                    Rarity = itemData.Value.Rarity,
+                    Quantity = 1,
+                    IsHQ = false,
+                    PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
+                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    IsOwnLoot = true,
+                    Source = LootSource.Extraction,
+                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    ZoneName = GetCurrentZoneName()
+                };
+                
+                AddLootItem(lootItem);
+                Plugin.Log.Info($"[Extraction] Found item by name: ID={itemData.Value.ItemId}, Icon={itemData.Value.IconId}, Name={itemData.Value.Name}, Rarity={itemData.Value.Rarity}");
+            }
+            else
+            {
+                Plugin.Log.Warning($"[Extraction] Could not find item data for: {itemName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, $"Error processing extraction message: {messageText}");
+        }
+    }
+
+    private void ProcessExchangeMessage(string messageText, SeString message)
+    {
+        // Handle "You exchange X ItemName for a TargetItem" or "for an TargetItem"
+        // We only care about the item received (after "for")
+        try
+        {
+            // Try both "for a " and "for an "
+            int startIndex = messageText.IndexOf(" for a ", StringComparison.OrdinalIgnoreCase);
+            if (startIndex == -1)
+            {
+                startIndex = messageText.IndexOf(" for an ", StringComparison.OrdinalIgnoreCase);
+                if (startIndex != -1)
+                    startIndex += " for an ".Length;
+            }
+            else
+            {
+                startIndex += " for a ".Length;
+            }
+
+            if (startIndex == -1 || startIndex >= messageText.Length)
+                return;
+
+            // Get the received item name (rest of the message after "for a/an")
+            string itemName = messageText.Substring(startIndex).Trim();
+            itemName = CleanItemName(itemName);
+
+            if (string.IsNullOrEmpty(itemName))
+                return;
+
+            // Try to find the item
+            var itemData = FindItemByName(itemName);
+            
+            if (itemData.HasValue)
+            {
+                var lootItem = new LootItem
+                {
+                    ItemName = itemData.Value.Name,
+                    ItemId = itemData.Value.ItemId,
+                    IconId = itemData.Value.IconId,
+                    Rarity = itemData.Value.Rarity,
+                    Quantity = 1,
+                    IsHQ = false,
+                    PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
+                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    IsOwnLoot = true,
+                    Source = LootSource.Exchange,
+                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    ZoneName = GetCurrentZoneName()
+                };
+                
+                AddLootItem(lootItem);
+                Plugin.Log.Info($"[Exchange] Found item by name: ID={itemData.Value.ItemId}, Icon={itemData.Value.IconId}, Name={itemData.Value.Name}, Rarity={itemData.Value.Rarity}");
+            }
+            else
+            {
+                Plugin.Log.Warning($"[Exchange] Could not find item data for: {itemName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, $"Error processing exchange message: {messageText}");
         }
     }
 

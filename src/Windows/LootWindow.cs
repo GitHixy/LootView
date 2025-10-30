@@ -136,7 +136,8 @@ public class LootWindow : Window
                             // Item name
                             ImGui.TableSetColumnIndex(1);
                             var nameColor = GetRarityColor(item.Rarity);
-                            ImGui.TextColored(nameColor, item.ItemName);
+                            var displayName = ToTitleCase(item.ItemName);
+                            ImGui.TextColored(nameColor, displayName);
                             if (item.IsHQ)
                             {
                                 ImGui.SameLine();
@@ -190,6 +191,25 @@ public class LootWindow : Window
             7 => new Vector4(1.0f, 0.6f, 0.8f, 1.0f),      // Aetherial (pink)
             _ => new Vector4(1.0f, 1.0f, 1.0f, 1.0f)       // Default (white)
         };
+    }
+
+    private string ToTitleCase(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Use TextInfo for proper title casing
+        var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
+        var titleCased = textInfo.ToTitleCase(text.ToLower());
+        
+        // Fix common words that should stay lowercase
+        var wordsToLower = new[] { " Of ", " The ", " A ", " An ", " And ", " Or ", " In ", " On ", " At ", " To ", " For ", " With " };
+        foreach (var word in wordsToLower)
+        {
+            titleCased = titleCased.Replace(word, word.ToLower());
+        }
+        
+        return titleCased;
     }
 
     public override void Dispose()
