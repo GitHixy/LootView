@@ -685,21 +685,21 @@ public class LootTrackingService : IDisposable
 
     private void ProcessExchangeMessage(string messageText, SeString message)
     {
-        // Handle "You exchange X ItemName for a TargetItem" or "for an TargetItem"
+        // Handle "You exchange a ItemName for a TargetItem" or "You exchange X ItemName for an TargetItem"
         // We only care about the item received (after "for")
         try
         {
-            // Try both "for a " and "for an "
-            int startIndex = messageText.IndexOf(" for a ", StringComparison.OrdinalIgnoreCase);
+            // Try both "for a " and "for an " (note: these patterns also match "exchange a X for a Y")
+            int startIndex = messageText.IndexOf("for a ", StringComparison.OrdinalIgnoreCase);
             if (startIndex == -1)
             {
-                startIndex = messageText.IndexOf(" for an ", StringComparison.OrdinalIgnoreCase);
+                startIndex = messageText.IndexOf("for an ", StringComparison.OrdinalIgnoreCase);
                 if (startIndex != -1)
-                    startIndex += " for an ".Length;
+                    startIndex += "for an ".Length;
             }
             else
             {
-                startIndex += " for a ".Length;
+                startIndex += "for a ".Length;
             }
 
             if (startIndex == -1 || startIndex >= messageText.Length)
