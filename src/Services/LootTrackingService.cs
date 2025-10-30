@@ -402,7 +402,30 @@ public class LootTrackingService : IDisposable
         // or specific FFXIV link markers (U+E0BB and similar)
         cleaned = new string(cleaned.Where(c => c >= 32 && c < 0xE000).ToArray());
         
-        return cleaned.Trim();
+        cleaned = cleaned.Trim();
+        
+        // Remove unit words that appear in gathering/crafting materials
+        // These need to be stripped to match the actual item names in Lumina
+        var unitPrefixes = new[] 
+        { 
+            "chunks of ", "chunk of ",
+            "pinches of ", "pinch of ",
+            "bottles of ", "bottle of ",
+            "pieces of ", "piece of ",
+            "handfuls of ", "handful of ",
+            "portions of ", "portion of "
+        };
+        
+        foreach (var prefix in unitPrefixes)
+        {
+            if (cleaned.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                cleaned = cleaned.Substring(prefix.Length).Trim();
+                break;
+            }
+        }
+        
+        return cleaned;
     }
     
     private (uint ItemId, uint IconId, uint Rarity, string Name)? FindItemByName(string itemName)
