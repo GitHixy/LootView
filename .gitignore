@@ -38,6 +38,7 @@ config.json
 
 # Documentation (as requested)
 DALAMUD_API_REFERENCE.md
+SUBMISSION_GUIDE.md
 
 # Logs
 *.log

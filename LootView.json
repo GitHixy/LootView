@@ -1,10 +1,10 @@
 {
   "Author": "GitHixy",
   "Name": "LootView",
-  "Punchline": "Loot Tracking for FFXIV",
+  "Punchline": "Comprehensive loot tracking with statistics and analytics",
   "InternalName": "LootView",
-  "AssemblyVersion": "1.0.9.0",
-  "Description": "A loot tracking window for FFXIV.",
+  "AssemblyVersion": "1.1.0.0",
+  "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles and transparency.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,
   "LoadPriority": 0,
@@ -13,6 +13,10 @@
   "Tags": [
     "loot",
     "tracking",
+    "statistics",
+    "analytics",
+    "duty",
+    "history",
     "ui",
     "drops",
     "party"
