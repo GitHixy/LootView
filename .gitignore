@@ -40,6 +40,9 @@ config.json
 DALAMUD_API_REFERENCE.md
 SUBMISSION_GUIDE.md
 
+# Submission files (local only)
+D17_Submission/
+
 # Logs
 *.log
 
