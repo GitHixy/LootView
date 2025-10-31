@@ -23,6 +23,7 @@ public abstract class Window : IDisposable
     protected Vector2? Size { get; set; } = null;
     protected Vector2? SizeConstraintMin { get; set; } = null;
     protected Vector2? SizeConstraintMax { get; set; } = null;
+    public float? BgAlpha { get; set; } = null;
 
     protected Window(string name)
     {
@@ -45,6 +46,12 @@ public abstract class Window : IDisposable
             if (Size.HasValue)
             {
                 ImGui.SetNextWindowSize(Size.Value, ImGuiCond.FirstUseEver);
+            }
+            
+            // Set background alpha if specified
+            if (BgAlpha.HasValue)
+            {
+                ImGui.SetNextWindowBgAlpha(BgAlpha.Value);
             }
 
             // Begin the ImGui window

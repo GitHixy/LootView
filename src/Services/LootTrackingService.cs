@@ -17,6 +17,7 @@ public class LootTrackingService : IDisposable
     private readonly ConfigurationService configService;
     private readonly List<LootItem> lootHistory = new();
     private readonly object lootHistoryLock = new();
+    private HistoryService historyService;
 
     public IReadOnlyList<LootItem> LootHistory
     {
@@ -34,6 +35,11 @@ public class LootTrackingService : IDisposable
     public LootTrackingService(ConfigurationService configService)
     {
         this.configService = configService;
+    }
+
+    public void SetHistoryService(HistoryService service)
+    {
+        historyService = service;
     }
 
     public void Initialize()
@@ -69,11 +75,16 @@ public class LootTrackingService : IDisposable
             // Detect loot messages:
             // - "You obtain X ItemName" (your loot)
             // - "PlayerName obtains X ItemName" (party member loot)
+            // - "X ItemName are obtained" or "ItemName is obtained" (passive voice)
             // - "You have successfully extracted a ItemName" (aetherial reduction, desynthesis)
             // - "You exchange X ItemName for a ItemName" (vendor trades)
             if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
             {
                 ProcessObtainMessage(messageText, message);
+            }
+            else if (messageText.Contains(" are obtained") || messageText.Contains(" is obtained"))
+            {
+                ProcessPassiveObtainMessage(messageText, message);
             }
             else if (messageText.Contains("successfully extract"))
             {
@@ -315,15 +326,220 @@ public class LootTrackingService : IDisposable
         }
     }
 
+    private void ProcessPassiveObtainMessage(string messageText, SeString message)
+    {
+        // Handle "X ItemName are obtained" or "ItemName is obtained"
+        // Example: "8 pinches of ironquartz sand are obtained."
+        try
+        {
+            var localPlayer = Plugin.ClientState.LocalPlayer;
+            if (localPlayer == null) return;
+
+            // Try to extract item ID from SeString payload (for linked items)
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug("Found item payload: ID={ItemId}, Name={Name}", itemPayload.ItemId, itemPayload.DisplayName);
+                    break;
+                }
+            }
+
+            string itemName = itemNameFromPayload;
+            uint quantity = 1;
+            bool isHQ = messageText.Contains(" HQ");
+            
+            // Remove " are obtained." or " is obtained." from the end
+            string remaining = messageText;
+            if (remaining.EndsWith(" are obtained.", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " are obtained.".Length).Trim();
+            }
+            else if (remaining.EndsWith(" is obtained.", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " is obtained.".Length).Trim();
+            }
+            else if (remaining.EndsWith(" are obtained", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " are obtained".Length).Trim();
+            }
+            else if (remaining.EndsWith(" is obtained", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " is obtained".Length).Trim();
+            }
+            
+            // Now parse quantity and item name from remaining
+            // Same logic as ProcessObtainMessage
+            var parts = remaining.Split(' ', 2);
+            if (parts.Length >= 2)
+            {
+                string quantityPart = parts[0];
+                
+                // Handle bonus format: "54(+9)" -> extract total
+                if (quantityPart.Contains("(+") && quantityPart.Contains(")"))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(quantityPart, @"^(\d+)\(\+(\d+)\)$");
+                    if (match.Success)
+                    {
+                        var baseQty = uint.Parse(match.Groups[1].Value);
+                        var bonusQty = uint.Parse(match.Groups[2].Value);
+                        quantity = baseQty + bonusQty;
+                        itemName = parts[1].TrimEnd('.', ' ');
+                    }
+                }
+                // Handle comma-separated numbers: "1,000" -> 1000
+                else if (quantityPart.Contains(","))
+                {
+                    var cleanedQty = quantityPart.Replace(",", "");
+                    if (uint.TryParse(cleanedQty, out var parsedQty))
+                    {
+                        quantity = parsedQty;
+                        itemName = parts[1].TrimEnd('.', ' ');
+                    }
+                }
+                // Handle regular number
+                else if (uint.TryParse(quantityPart, out var parsedQty))
+                {
+                    quantity = parsedQty;
+                    var rest = parts[1];
+                    
+                    // Check if the next part is a unit word: "2 chunks of ItemName"
+                    var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
+                                           "bottles of ", "bottle of ", "pieces of ", "piece of " };
+                    foreach (var unit in unitWords)
+                    {
+                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            rest = rest.Substring(unit.Length);
+                            break;
+                        }
+                    }
+                    
+                    itemName = rest.TrimEnd('.', ' ');
+                }
+                // Handle "a chunk of ItemName" / "chunks of ItemName" etc.
+                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) || 
+                         quantityPart.Equals("an", StringComparison.OrdinalIgnoreCase))
+                {
+                    quantity = 1;
+                    var rest = parts[1];
+                    
+                    // Remove unit words like "chunk of", "pinch of", "bottle of"
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of " };
+                    foreach (var unit in unitWords)
+                    {
+                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            rest = rest.Substring(unit.Length);
+                            break;
+                        }
+                    }
+                    
+                    itemName = rest.TrimEnd('.', ' ');
+                }
+                else
+                {
+                    // No quantity number, treat entire remaining as item name
+                    itemName = remaining.TrimEnd('.', ' ');
+                }
+            }
+            else
+            {
+                // Single word item name
+                itemName = remaining.TrimEnd('.', ' ');
+            }
+            
+            // Remove HQ suffix if present
+            if (isHQ)
+            {
+                itemName = itemName.Replace(" HQ", "").Trim();
+            }
+            
+            // If we have item ID from payload, use it directly; otherwise try to find by name
+            (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
+            
+            if (itemIdFromPayload.HasValue)
+            {
+                itemData = GetItemDataById(itemIdFromPayload.Value);
+                if (itemData.HasValue)
+                {
+                    itemName = itemData.Value.Name;
+                }
+            }
+            else
+            {
+                // No payload, clean and search by name
+                itemName = CleanItemName(itemName);
+                itemData = FindItemByName(itemName);
+                
+                if (itemData.HasValue)
+                {
+                    Plugin.Log.Info("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                        itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
+                }
+                else
+                {
+                    Plugin.Log.Warning("Item not found by name: '{ItemName}'", itemName);
+                }
+            }
+            
+            var lootItem = new LootItem
+            {
+                ItemName = itemData?.Name ?? itemName,
+                ItemId = itemData?.ItemId ?? 0,
+                IconId = itemData?.IconId ?? 0,
+                Rarity = itemData?.Rarity ?? 1,
+                Quantity = quantity,
+                IsHQ = isHQ,
+                PlayerName = localPlayer.Name.TextValue,
+                PlayerContentId = Plugin.ClientState.LocalContentId,
+                IsOwnLoot = true,
+                Source = LootSource.Unknown,
+                TerritoryType = Plugin.ClientState.TerritoryType,
+                ZoneName = GetCurrentZoneName()
+            };
+
+            AddLootItem(lootItem);
+            
+            Plugin.Log.Info($"Loot tracked (passive): {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing passive obtain message: {Message}", messageText);
+        }
+    }
+
     private string GetCurrentZoneName()
     {
         try
         {
-            // For now, return a simple zone name - we'll implement proper data loading later
-            return $"Zone {Plugin.ClientState.TerritoryType}";
+            var territoryId = Plugin.ClientState.TerritoryType;
+            var territorySheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
+            
+            if (territorySheet != null && territorySheet.TryGetRow(territoryId, out var territory))
+            {
+                // Get the PlaceName row directly
+                var placeNameSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>();
+                if (placeNameSheet != null && placeNameSheet.TryGetRow(territory.PlaceName.RowId, out var placeName))
+                {
+                    var name = placeName.Name.ToString();
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        return name;
+                    }
+                }
+            }
+            
+            return $"Zone {territoryId}";
         }
-        catch
+        catch (Exception ex)
         {
+            Plugin.Log.Warning(ex, "Failed to get zone name for territory {TerritoryId}", Plugin.ClientState.TerritoryType);
             return "Unknown Zone";
         }
     }
@@ -409,6 +625,7 @@ public class LootTrackingService : IDisposable
         var unitPrefixes = new[] 
         { 
             "chunks of ", "chunk of ",
+            "clumps of ", "clump of ",
             "pinches of ", "pinch of ",
             "bottles of ", "bottle of ",
             "pieces of ", "piece of ",
@@ -423,6 +640,37 @@ public class LootTrackingService : IDisposable
                 cleaned = cleaned.Substring(prefix.Length).Trim();
                 break;
             }
+        }
+        
+        // Special case: Fix "Tomestones" -> "Tomestone" for currency names
+        // Example: "Allagan Tomestones of Heliometry" -> "Allagan Tomestone of Heliometry"
+        if (cleaned.Contains("tomestones", StringComparison.OrdinalIgnoreCase))
+        {
+            // Find and replace "tomestones" with "tomestone" (case-insensitive)
+            var index = cleaned.IndexOf("tomestones", StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                cleaned = cleaned.Substring(0, index) + "Tomestone" + cleaned.Substring(index + "tomestones".Length);
+            }
+        }
+        
+        // Special case: Fix "Helixes" -> "Helix" for items like "Glass Helixes"
+        // Example: "Glass Helixes" -> "Glass Helix"
+        if (cleaned.Contains("helixes", StringComparison.OrdinalIgnoreCase))
+        {
+            // Find and replace "helixes" with "helix" (case-insensitive)
+            var index = cleaned.IndexOf("helixes", StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                cleaned = cleaned.Substring(0, index) + "Helix" + cleaned.Substring(index + "helixes".Length);
+            }
+        }
+        
+        // Special case: Fix "Leaves" -> "Leaf" for items like "Cupflower Leaves"
+        // Example: "Cupflower Leaves" -> "Cupflower Leaf"
+        if (cleaned.EndsWith(" leaves", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned = cleaned.Substring(0, cleaned.Length - 7) + " Leaf";
         }
         
         return cleaned;
@@ -597,6 +845,20 @@ public class LootTrackingService : IDisposable
             }
         }
 
+        // Save to persistent history if enabled
+        if (configService.Configuration.EnableHistoryTracking && historyService != null)
+        {
+            try
+            {
+                historyService.AddItem(lootItem);
+                historyService.IncrementDutyItemCount(lootItem.ItemId, lootItem.Quantity, lootItem.IsHQ);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error(ex, "Failed to save item to history");
+            }
+        }
+
         // Notify subscribers
         LootObtained?.Invoke(lootItem);
 
@@ -616,6 +878,28 @@ public class LootTrackingService : IDisposable
 
     public void ClearHistory()
     {
+        // Save items to persistent history before clearing (if enabled)
+        if (configService.Configuration.SaveToHistoryOnClear && 
+            configService.Configuration.EnableHistoryTracking && 
+            historyService != null)
+        {
+            try
+            {
+                lock (lootHistoryLock)
+                {
+                    if (lootHistory.Any())
+                    {
+                        Plugin.Log.Info($"Saving {lootHistory.Count} items to persistent history before clearing");
+                        historyService.AddItems(lootHistory);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error(ex, "Failed to save items to history before clearing");
+            }
+        }
+
         lock (lootHistoryLock)
         {
             lootHistory.Clear();
@@ -725,26 +1009,95 @@ public class LootTrackingService : IDisposable
     private void ProcessExtractionMessage(string messageText, SeString message)
     {
         // Handle "You have successfully extracted a ItemName" or "extracted an ItemName"
+        // Also handle "You successfully extract a ItemName from the ItemName"
         try
         {
-            // Try both "extracted a " and "extracted an "
-            int startIndex = messageText.IndexOf("extracted a ", StringComparison.OrdinalIgnoreCase);
+            // Try to extract item ID from SeString payload (for linked items)
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug("Found item payload in extraction: ID={ItemId}, Name={Name}", itemPayload.ItemId, itemPayload.DisplayName);
+                    break;
+                }
+            }
+
+            // If we have payload data, use it directly
+            if (itemIdFromPayload.HasValue && !string.IsNullOrEmpty(itemNameFromPayload))
+            {
+                var itemDataFromPayload = GetItemDataById(itemIdFromPayload.Value);
+                if (itemDataFromPayload.HasValue)
+                {
+                    var lootItem = new LootItem
+                    {
+                        ItemName = itemDataFromPayload.Value.Name,
+                        ItemId = itemDataFromPayload.Value.ItemId,
+                        IconId = itemDataFromPayload.Value.IconId,
+                        Rarity = itemDataFromPayload.Value.Rarity,
+                        Quantity = 1,
+                        IsHQ = false,
+                        PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
+                        PlayerContentId = Plugin.ClientState.LocalContentId,
+                        IsOwnLoot = true,
+                        Source = LootSource.Extraction,
+                        TerritoryType = Plugin.ClientState.TerritoryType,
+                        ZoneName = GetCurrentZoneName()
+                    };
+                    
+                    AddLootItem(lootItem);
+                    Plugin.Log.Info($"[Extraction] Found item from payload: ID={itemDataFromPayload.Value.ItemId}, Name={itemDataFromPayload.Value.Name}");
+                    return;
+                }
+            }
+
+            // Fallback: parse from text
+            // Try both "extract a " and "extract an " (present tense)
+            int startIndex = messageText.IndexOf("extract a ", StringComparison.OrdinalIgnoreCase);
             if (startIndex == -1)
             {
-                startIndex = messageText.IndexOf("extracted an ", StringComparison.OrdinalIgnoreCase);
+                startIndex = messageText.IndexOf("extract an ", StringComparison.OrdinalIgnoreCase);
                 if (startIndex != -1)
-                    startIndex += "extracted an ".Length;
+                    startIndex += "extract an ".Length;
             }
             else
             {
-                startIndex += "extracted a ".Length;
+                startIndex += "extract a ".Length;
+            }
+            
+            // Also try past tense "extracted a/an"
+            if (startIndex == -1)
+            {
+                startIndex = messageText.IndexOf("extracted a ", StringComparison.OrdinalIgnoreCase);
+                if (startIndex == -1)
+                {
+                    startIndex = messageText.IndexOf("extracted an ", StringComparison.OrdinalIgnoreCase);
+                    if (startIndex != -1)
+                        startIndex += "extracted an ".Length;
+                }
+                else
+                {
+                    startIndex += "extracted a ".Length;
+                }
             }
 
             if (startIndex == -1 || startIndex >= messageText.Length)
                 return;
 
-            // Get the item name (rest of the message after "extracted a/an")
+            // Get the item name (until " from the" if present, otherwise rest of message)
             string itemName = messageText.Substring(startIndex).Trim();
+            
+            // Remove " from the ItemName" part if present
+            var fromIndex = itemName.IndexOf(" from the ", StringComparison.OrdinalIgnoreCase);
+            if (fromIndex > 0)
+            {
+                itemName = itemName.Substring(0, fromIndex).Trim();
+            }
+            
             itemName = CleanItemName(itemName);
 
             if (string.IsNullOrEmpty(itemName))
@@ -788,34 +1141,70 @@ public class LootTrackingService : IDisposable
     private void ProcessExchangeMessage(string messageText, SeString message)
     {
         // Handle "You exchange a ItemName for a TargetItem" or "You exchange X ItemName for an TargetItem"
+        // Also handle "You exchange X item for 14 chunks of ItemName" (with quantity and prefixes)
         // We only care about the item received (after "for")
         try
         {
-            // Try both "for a " and "for an " (note: these patterns also match "exchange a X for a Y")
-            int startIndex = messageText.IndexOf("for a ", StringComparison.OrdinalIgnoreCase);
-            if (startIndex == -1)
+            // Try to extract item ID from SeString payload (for linked items)
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
             {
-                startIndex = messageText.IndexOf("for an ", StringComparison.OrdinalIgnoreCase);
-                if (startIndex != -1)
-                    startIndex += "for an ".Length;
-            }
-            else
-            {
-                startIndex += "for a ".Length;
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug("Found item payload in exchange: ID={ItemId}, Name={Name}", itemPayload.ItemId, itemPayload.DisplayName);
+                    break;
+                }
             }
 
-            if (startIndex == -1 || startIndex >= messageText.Length)
+            // Find the " for " part
+            int forIndex = messageText.IndexOf(" for ", StringComparison.OrdinalIgnoreCase);
+            if (forIndex == -1 || forIndex >= messageText.Length - 5)
                 return;
 
-            // Get the received item name (rest of the message after "for a/an")
-            string itemName = messageText.Substring(startIndex).Trim();
+            // Get everything after " for "
+            string afterFor = messageText.Substring(forIndex + 5).Trim();
+            
+            // Parse quantity and item name
+            // Format: "14 chunks of ItemName" or "a ItemName" or "an ItemName"
+            uint quantity = 1;
+            string itemName;
+
+            // Check if it starts with a number
+            var parts = afterFor.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 0 && uint.TryParse(parts[0], out uint parsedQty))
+            {
+                quantity = parsedQty;
+                // Remove the number from the string
+                afterFor = parts.Length > 1 ? parts[1].Trim() : "";
+            }
+            else if (afterFor.StartsWith("a ", StringComparison.OrdinalIgnoreCase))
+            {
+                afterFor = afterFor.Substring(2).Trim();
+            }
+            else if (afterFor.StartsWith("an ", StringComparison.OrdinalIgnoreCase))
+            {
+                afterFor = afterFor.Substring(3).Trim();
+            }
+
+            itemName = afterFor;
+
+            // If we have payload data, use it
+            if (itemIdFromPayload.HasValue && !string.IsNullOrEmpty(itemNameFromPayload))
+            {
+                itemName = itemNameFromPayload;
+            }
+
             itemName = CleanItemName(itemName);
 
             if (string.IsNullOrEmpty(itemName))
                 return;
 
             // Try to find the item
-            var itemData = FindItemByName(itemName);
+            var itemData = itemIdFromPayload.HasValue ? GetItemDataById(itemIdFromPayload.Value) : FindItemByName(itemName);
             
             if (itemData.HasValue)
             {
@@ -825,7 +1214,7 @@ public class LootTrackingService : IDisposable
                     ItemId = itemData.Value.ItemId,
                     IconId = itemData.Value.IconId,
                     Rarity = itemData.Value.Rarity,
-                    Quantity = 1,
+                    Quantity = quantity,
                     IsHQ = false,
                     PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
                     PlayerContentId = Plugin.ClientState.LocalContentId,
@@ -836,7 +1225,7 @@ public class LootTrackingService : IDisposable
                 };
                 
                 AddLootItem(lootItem);
-                Plugin.Log.Info($"[Exchange] Found item by name: ID={itemData.Value.ItemId}, Icon={itemData.Value.IconId}, Name={itemData.Value.Name}, Rarity={itemData.Value.Rarity}");
+                Plugin.Log.Info($"[Exchange] Found item: ID={itemData.Value.ItemId}, Name={itemData.Value.Name}, Qty={quantity}");
             }
             else
             {
