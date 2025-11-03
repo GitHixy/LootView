@@ -37,6 +37,13 @@ public class StatisticsWindow : Window
     private string selectedContentType = "All";
     private uint selectedDutyId = 0;
 
+    // For zone finder
+    private string zoneSearchQuery = "";
+    private List<ZoneSearchResult> zoneSearchResults = new();
+    private bool zoneSearchPerformed = false;
+    private uint selectedZoneForLootTable = 0;
+    private string selectedZoneName = "";
+
     public StatisticsWindow(Plugin plugin) : base("Loot Statistics & History###LootView_Statistics")
     {
         this.plugin = plugin;
@@ -124,6 +131,18 @@ public class StatisticsWindow : Window
                 if (ImGui.BeginChild("DutyTrackerContent", new Vector2(0, 0), false))
                 {
                     DrawDutyTrackerTab();
+                    ImGui.EndChild();
+                }
+                ImGui.EndTabItem();
+            }
+
+            // Zone Finder Tab
+            var zoneFinderOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Search.ToIconString()} Zone Finder##ZoneFinderTab");
+            if (zoneFinderOpen)
+            {
+                if (ImGui.BeginChild("ZoneFinderContent", new Vector2(0, 0), false))
+                {
+                    DrawZoneFinderTab();
                     ImGui.EndChild();
                 }
                 ImGui.EndTabItem();
@@ -1369,8 +1388,190 @@ public class StatisticsWindow : Window
         };
     }
 
+    private void DrawZoneFinderTab()
+    {
+        ImGui.TextWrapped("Search for dungeons, trials, and raids by name to view their loot tables.");
+        ImGui.Spacing();
+        
+        // Disclaimer box
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.2f, 0.3f, 0.4f, 0.3f));
+        if (ImGui.BeginChild("DisclaimerBox", new Vector2(0, 80), true))
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.9f, 0.5f, 1.0f));
+            ImGui.Text("ℹ️ Supported Content:");
+            ImGui.PopStyleColor();
+            
+            ImGui.Spacing();
+            ImGui.TextWrapped("✓ Dungeons  ✓ Trials  ✓ Raids (Normal/Savage/Ultimate)");
+            ImGui.TextWrapped("This feature works best with instanced battle content (dungeons, trials, raids). Overworld zones and some special content may not have loot table data available.");
+            
+            ImGui.EndChild();
+        }
+        ImGui.PopStyleColor();
+        
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Search box
+        ImGui.Text("Search Zone:");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(300);
+        if (ImGui.InputText("##ZoneSearch", ref zoneSearchQuery, 100, ImGuiInputTextFlags.EnterReturnsTrue))
+        {
+            PerformZoneSearch();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Search"))
+        {
+            PerformZoneSearch();
+        }
+        
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Search results
+        if (zoneSearchPerformed && zoneSearchResults.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(1, 0.7f, 0, 1), "No zones found matching your search.");
+            ImGui.TextDisabled("Try searching for: Sastasha, Titan, Alexander, etc.");
+        }
+        else if (zoneSearchResults.Count > 0)
+        {
+            ImGui.Text($"Found {zoneSearchResults.Count} zone(s):");
+            ImGui.Spacing();
+
+            // Results table
+            if (ImGui.BeginTable("ZoneSearchResultsTable", 4, 
+                ImGuiTableFlags.Borders | 
+                ImGuiTableFlags.RowBg | 
+                ImGuiTableFlags.ScrollY,
+                new Vector2(0, 300)))
+            {
+                ImGui.TableSetupColumn("Zone Name", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
+                ImGui.TableSetupColumn("Level", ImGuiTableColumnFlags.WidthFixed, 60);
+                ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 120);
+                ImGui.TableSetupScrollFreeze(0, 1);
+                ImGui.TableHeadersRow();
+
+                foreach (var result in zoneSearchResults)
+                {
+                    ImGui.TableNextRow();
+
+                    ImGui.TableSetColumnIndex(0);
+                    ImGui.Text(result.Name);
+
+                    ImGui.TableSetColumnIndex(1);
+                    ImGui.TextColored(new Vector4(0.7f, 0.9f, 1.0f, 1), result.ContentType);
+
+                    ImGui.TableSetColumnIndex(2);
+                    if (result.ItemLevel > 0)
+                    {
+                        ImGui.Text($"i{result.ItemLevel}");
+                    }
+
+                    ImGui.TableSetColumnIndex(3);
+                    if (ImGui.Button($"View Loot##{result.ContentFinderConditionId}"))
+                    {
+                        selectedZoneForLootTable = result.TerritoryId;
+                        selectedZoneName = result.Name;
+                        plugin.LootTableWindow.IsOpen = true;
+                        LoadZoneLootTable(result.ContentFinderConditionId);
+                    }
+                }
+
+                ImGui.EndTable();
+            }
+        }
+        else
+        {
+            ImGui.TextDisabled("Enter a zone name and click Search to find dungeons, trials, and raids.");
+        }
+    }
+
+    private void PerformZoneSearch()
+    {
+        zoneSearchResults.Clear();
+        zoneSearchPerformed = true;
+
+        if (string.IsNullOrWhiteSpace(zoneSearchQuery))
+        {
+            return;
+        }
+
+        var contentFinderSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>();
+        if (contentFinderSheet == null) return;
+
+        var query = zoneSearchQuery.ToLower();
+
+        foreach (var cfc in contentFinderSheet)
+        {
+            // Skip invalid entries
+            if (cfc.RowId == 0 || cfc.Content.RowId == 0) continue;
+            if (string.IsNullOrEmpty(cfc.Name.ToString())) continue;
+
+            var name = cfc.Name.ToString();
+            
+            // Search by name
+            if (name.ToLower().Contains(query))
+            {
+                var result = new ZoneSearchResult
+                {
+                    ContentFinderConditionId = cfc.RowId,
+                    TerritoryId = cfc.TerritoryType.RowId,
+                    Name = name,
+                    ContentType = GetContentTypeName(cfc.ContentType.RowId),
+                    ItemLevel = cfc.ItemLevelRequired
+                };
+
+                zoneSearchResults.Add(result);
+            }
+        }
+
+        // Sort by name
+        zoneSearchResults = zoneSearchResults.OrderBy(r => r.Name).ToList();
+        
+        Plugin.Log.Info($"Zone search for '{zoneSearchQuery}' found {zoneSearchResults.Count} results");
+    }
+
+    private string GetContentTypeName(uint contentTypeId)
+    {
+        return contentTypeId switch
+        {
+            2 => "Dungeon",
+            4 => "Trial",
+            5 => "Raid",
+            7 => "Quest Battle",
+            9 => "Guildhest",
+            16 => "Deep Dungeon",
+            21 => "Ultimate Raid",
+            26 => "Variant Dungeon",
+            28 => "Criterion Dungeon",
+            _ => "Other"
+        };
+    }
+
+    private void LoadZoneLootTable(uint contentFinderConditionId)
+    {
+        // This will trigger the loot table window to load the specific zone
+        Plugin.Log.Info($"Loading loot table for ContentFinderCondition {contentFinderConditionId}");
+        plugin.LootTableWindow.LoadZoneById(contentFinderConditionId);
+    }
+
+    private class ZoneSearchResult
+    {
+        public uint ContentFinderConditionId { get; set; }
+        public uint TerritoryId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public ushort ItemLevel { get; set; }
+    }
+
     public override void Dispose()
     {
         // Cleanup if needed
     }
 }
+

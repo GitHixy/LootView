@@ -40,6 +40,7 @@ public sealed class Plugin : IDalamudPlugin
     public LootTrackingService LootTracker { get; private set; }
     public ConfigurationService ConfigService { get; private set; }
     public HistoryService HistoryService { get; private set; }
+    public LootTableService LootTableService { get; private set; }
     
     // DTR Bar Entry
     private IDtrBarEntry? dtrEntry;
@@ -48,6 +49,7 @@ public sealed class Plugin : IDalamudPlugin
     public LootWindow LootWindow { get; private set; }
     public ConfigWindow ConfigWindow { get; private set; }
     public StatisticsWindow StatisticsWindow { get; private set; }
+    public LootTableWindow LootTableWindow { get; private set; }
     
     // Configuration accessor for services
     public Configuration Configuration => ConfigService.Configuration;
@@ -68,6 +70,9 @@ public sealed class Plugin : IDalamudPlugin
             // Initialize history service
             HistoryService = new HistoryService(ConfigService);
 
+            // Initialize loot table service
+            LootTableService = new LootTableService();
+
             // Initialize loot tracking service
             LootTracker = new LootTrackingService(ConfigService);
             LootTracker.SetHistoryService(HistoryService);
@@ -77,6 +82,7 @@ public sealed class Plugin : IDalamudPlugin
             LootWindow = new LootWindow(this);
             ConfigWindow = new ConfigWindow(this, ConfigService);
             StatisticsWindow = new StatisticsWindow(this);
+            LootTableWindow = new LootTableWindow(this);
 
             // Register commands
             CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand)
@@ -126,6 +132,7 @@ public sealed class Plugin : IDalamudPlugin
             }
 
             // Dispose services in reverse order
+            LootTableService?.Dispose();
             LootTracker?.Dispose();
             HistoryService?.Dispose();
             ConfigService?.Dispose();
@@ -145,6 +152,7 @@ public sealed class Plugin : IDalamudPlugin
             LootWindow?.Dispose();
             ConfigWindow?.Dispose();
             StatisticsWindow?.Dispose();
+            LootTableWindow?.Dispose();
 
             // Remove commands
             CommandManager.RemoveHandler(CommandAlt);
@@ -186,6 +194,7 @@ public sealed class Plugin : IDalamudPlugin
             LootWindow?.Draw();
             ConfigWindow?.Draw();
             StatisticsWindow?.Draw();
+            LootTableWindow?.Draw();
         }
         catch (Exception ex)
         {
@@ -269,21 +278,29 @@ public sealed class Plugin : IDalamudPlugin
     {
         try
         {
-            if (currentDuty == null)
+            // Always try to get duty info from current territory (important for roulettes!)
+            var territoryId = ClientState.TerritoryType;
+            Log.Debug($"OnDutyEnter: Territory {territoryId}, currentDuty is {(currentDuty == null ? "null" : "set")}");
+            
+            var territorySheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
+            if (territorySheet != null && territorySheet.TryGetRow(territoryId, out var territory))
             {
-                // Try to get current duty from territory
-                var territoryId = ClientState.TerritoryType;
-                var territorySheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
-                if (territorySheet != null && territorySheet.TryGetRow(territoryId, out var territory))
+                var cfcSheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>();
+                if (cfcSheet != null && territory.ContentFinderCondition.RowId > 0)
                 {
-                    var cfcSheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>();
-                    if (cfcSheet != null && territory.ContentFinderCondition.RowId > 0)
+                    if (cfcSheet.TryGetRow(territory.ContentFinderCondition.RowId, out var cfc))
                     {
-                        if (cfcSheet.TryGetRow(territory.ContentFinderCondition.RowId, out var cfc))
-                        {
-                            currentDuty = cfc;
-                        }
+                        currentDuty = cfc;
+                        Log.Debug($"Got duty from territory: {cfc.Name.ExtractText()} (CFC {cfc.RowId})");
                     }
+                    else
+                    {
+                        Log.Warning($"Could not find ContentFinderCondition {territory.ContentFinderCondition.RowId}");
+                    }
+                }
+                else
+                {
+                    Log.Debug($"Territory {territoryId} has no ContentFinderCondition");
                 }
             }
 
@@ -291,7 +308,7 @@ public sealed class Plugin : IDalamudPlugin
             {
                 var contentType = GetContentType(currentDuty.Value.ContentType.RowId);
                 var dutyName = currentDuty.Value.Name.ExtractText();
-                Log.Info($"Entered duty: {dutyName} ({contentType})");
+                Log.Info($"Entered duty: {dutyName} ({contentType}) via territory {territoryId}");
                 
                 HistoryService.TrackDutyStart(
                     currentDuty.Value.RowId,
@@ -300,6 +317,10 @@ public sealed class Plugin : IDalamudPlugin
                     currentDuty.Value.ClassJobLevelRequired,
                     currentDuty.Value.ItemLevelRequired
                 );
+            }
+            else
+            {
+                Log.Warning($"Could not determine duty for territory {territoryId}");
             }
         }
         catch (Exception ex)

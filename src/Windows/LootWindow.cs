@@ -55,6 +55,29 @@ public class LootWindow : Window
             WindowFlags |= ImGuiWindowFlags.NoResize;
         }
     }
+    
+    private bool IsInDuty()
+    {
+        try
+        {
+            var territoryId = Plugin.ClientState.TerritoryType;
+            if (territoryId == 0) return false;
+            
+            var territorySheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
+            if (territorySheet == null) return false;
+            
+            if (territorySheet.TryGetRow(territoryId, out var territory))
+            {
+                return territory.ContentFinderCondition.RowId > 0;
+            }
+            
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     protected override void DrawContents()
     {
@@ -95,13 +118,19 @@ public class LootWindow : Window
                 ImGui.SetTooltip("Change visual style");
             }
             
-            // Right side buttons - Clear, Stats, Lock, Config
+            // Right side buttons - Clear, Stats, Lock, [Table], Config
+            // Check if we're in a duty (has ContentFinderCondition)
+            var isInDuty = IsInDuty();
+            
             ImGui.SameLine();
             var availableWidth = ImGui.GetContentRegionAvail().X;
-            var iconButtonWidth = 30f; // Icon buttons (Stats, Lock, Config)
+            var iconButtonWidth = 30f; // Icon buttons (Stats, Lock, [Table], Config)
             var clearButtonWidth = 70f; // "Clear All" button width
             var spacing = ImGui.GetStyle().ItemSpacing.X;
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + availableWidth - clearButtonWidth - iconButtonWidth - iconButtonWidth - iconButtonWidth - (spacing * 3));
+            
+            // Calculate button count: base 3 (Stats, Lock, Config) + 1 if in duty (Table)
+            var buttonCount = isInDuty ? 4 : 3;
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + availableWidth - clearButtonWidth - (iconButtonWidth * buttonCount) - (spacing * buttonCount));
             
             // Clear All button
             if (ImGui.Button("Clear All", new Vector2(clearButtonWidth, 0)))
@@ -134,6 +163,21 @@ public class LootWindow : Window
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(isLocked ? "Unlock window" : "Lock window position and size");
+            }
+            
+            // Loot Table button (only show in duties/instances)
+            if (isInDuty)
+            {
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButton("LootTableButton", FontAwesomeIcon.Table, new Vector2(iconButtonWidth, 0)))
+                {
+                    plugin.LootTableWindow.IsOpen = true;
+                    plugin.LootTableWindow.LoadCurrentZone();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip("Show Duty Loot Table");
+                }
             }
             
             // Config button

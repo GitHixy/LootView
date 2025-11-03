@@ -90,17 +90,22 @@ If you encounter any issues or have questions:
 
 ## Changelog
 
+
+### Version 1.2.0
+
+- Major Bug/Logic Fixes
+
 ### Version 1.1.0
-- ✨ Added comprehensive Statistics & History system
-- 📊 Added Duty Tracker with detailed run statistics
-- 📈 Added Trends and Analytics visualizations
-- 💾 Added data export functionality (CSV/JSON)
-- 🎨 Improved UI with FontAwesome icons throughout
-- 🔒 Added window lock functionality
-- 🎯 Added Server Info Bar integration
-- 🔍 Added advanced filtering and search in history
-- 🌈 Improved background transparency controls
-- 🐛 Fixed various UI and tracking issues
+-  Added comprehensive Statistics & History system
+-  Added Duty Tracker with detailed run statistics
+-  Added Trends and Analytics visualizations
+-  Added data export functionality (CSV/JSON)
+-  Improved UI with FontAwesome icons throughout
+-  Added window lock functionality
+-  Added Server Info Bar integration
+-  Added advanced filtering and search in history
+-  Improved background transparency controls
+-  Fixed various UI and tracking issues
 
 ### Version 1.0.0
 - Initial release
