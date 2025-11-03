@@ -65,6 +65,10 @@ public class LootTableWindow : Window
             ImGui.Separator();
             ImGui.Spacing();
 
+            // Disclaimer
+            DrawDisclaimer();
+            ImGui.Spacing();
+
             // Content
             if (isLoading)
             {
@@ -115,6 +119,23 @@ public class LootTableWindow : Window
         {
             ImGui.SetTooltip("Refresh loot table for current zone");
         }
+    }
+
+    private void DrawDisclaimer()
+    {
+        // Warning icon and disclaimer text
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.2f, 1.0f), FontAwesomeIcon.ExclamationTriangle.ToIconString());
+        }
+        
+        ImGui.SameLine();
+        ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.2f, 1.0f), "Work in Progress:");
+        
+        ImGui.SameLine();
+        ImGui.PushTextWrapPos(ImGui.GetContentRegionAvail().X);
+        ImGui.TextWrapped("I'm actively working to fix issues and improve the loot table data. Updates and fixes are added regularly, but some data may still be incomplete or inaccurate.");
+        ImGui.PopTextWrapPos();
     }
 
     private void DrawLoadingState()

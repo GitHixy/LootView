@@ -50,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     public ConfigWindow ConfigWindow { get; private set; }
     public StatisticsWindow StatisticsWindow { get; private set; }
     public LootTableWindow LootTableWindow { get; private set; }
+    public RollWindow RollWindow { get; private set; }
     
     // Configuration accessor for services
     public Configuration Configuration => ConfigService.Configuration;
@@ -83,6 +84,7 @@ public sealed class Plugin : IDalamudPlugin
             ConfigWindow = new ConfigWindow(this, ConfigService);
             StatisticsWindow = new StatisticsWindow(this);
             LootTableWindow = new LootTableWindow(this);
+            RollWindow = new RollWindow(this);
 
             // Register commands
             CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand)
@@ -153,6 +155,7 @@ public sealed class Plugin : IDalamudPlugin
             ConfigWindow?.Dispose();
             StatisticsWindow?.Dispose();
             LootTableWindow?.Dispose();
+            RollWindow?.Dispose();
 
             // Remove commands
             CommandManager.RemoveHandler(CommandAlt);
@@ -195,6 +198,7 @@ public sealed class Plugin : IDalamudPlugin
             ConfigWindow?.Draw();
             StatisticsWindow?.Draw();
             LootTableWindow?.Draw();
+            RollWindow?.Draw();
         }
         catch (Exception ex)
         {
@@ -376,6 +380,9 @@ public sealed class Plugin : IDalamudPlugin
         {
             // Update DTR bar when loot is obtained
             UpdateDtrBar();
+            
+            // Roll window is now automatically updated via RollsUpdated event
+            // when a winner is marked in the roll tracking
         }
         catch (Exception ex)
         {

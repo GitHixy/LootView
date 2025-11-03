@@ -1245,6 +1245,11 @@ public class StatisticsWindow : Window
         ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.3f, 1.0f), "Data Management");
         ImGui.Spacing();
 
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.9f, 0.5f, 1.0f));
+        ImGui.TextWrapped("ℹ History is kept forever unless you manually delete it.");
+        ImGui.PopStyleColor();
+        ImGui.Spacing();
+        
         ImGui.TextWrapped("Clean up old data to reduce file size. This will permanently remove items older than the specified number of days.");
         ImGui.Spacing();
 

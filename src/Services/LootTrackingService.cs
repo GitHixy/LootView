@@ -18,6 +18,10 @@ public class LootTrackingService : IDisposable
     private readonly List<LootItem> lootHistory = new();
     private readonly object lootHistoryLock = new();
     private HistoryService historyService;
+    
+    // Roll tracking - use a list to allow multiple drops of the same item
+    private readonly List<RollInfo> activeRolls = new();
+    private readonly object rollLock = new();
 
     public IReadOnlyList<LootItem> LootHistory
     {
@@ -30,7 +34,52 @@ public class LootTrackingService : IDisposable
         }
     }
 
+    public IReadOnlyList<RollInfo> ActiveRolls
+    {
+        get
+        {
+            lock (rollLock)
+            {
+                return activeRolls.ToList();
+            }
+        }
+    }
+
     public event Action<LootItem> LootObtained;
+    public event Action RollsUpdated;
+
+    /// <summary>
+    /// Clear all completed roll sessions (ones with winners)
+    /// </summary>
+    public void ClearCompletedRolls()
+    {
+        lock (rollLock)
+        {
+            var completedCount = activeRolls.RemoveAll(r => !string.IsNullOrEmpty(r.WinnerName));
+            if (completedCount > 0)
+            {
+                Plugin.Log.Info($"Cleared {completedCount} completed roll session(s)");
+                RollsUpdated?.Invoke();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clear ALL roll sessions (completed or not)
+    /// </summary>
+    public void ClearAllRolls()
+    {
+        lock (rollLock)
+        {
+            var totalCount = activeRolls.Count;
+            activeRolls.Clear();
+            if (totalCount > 0)
+            {
+                Plugin.Log.Info($"Cleared all {totalCount} roll session(s)");
+                RollsUpdated?.Invoke();
+            }
+        }
+    }
 
     public LootTrackingService(ConfigurationService configService)
     {
@@ -78,7 +127,20 @@ public class LootTrackingService : IDisposable
             // - "X ItemName are obtained" or "ItemName is obtained" (passive voice)
             // - "You have successfully extracted a ItemName" (aetherial reduction, desynthesis)
             // - "You exchange X ItemName for a ItemName" (vendor trades)
-            if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
+            // - "A bonus of X gil has been awarded for using the duty roulette" (roulette bonus)
+            // - "You roll Need/Greed on the ItemName. XX!" (roll tracking)
+            // - "PlayerName rolls Need/Greed on the ItemName. XX!" (party roll tracking)
+            // - "A ItemName has been added to the loot list." (roll started)
+            if (messageText.Contains("has been added to the loot list"))
+            {
+                ProcessLootListAddedMessage(messageText, message);
+            }
+            else if ((messageText.Contains(" roll") || messageText.Contains(" rolls ")) && 
+                (messageText.Contains(" Need ") || messageText.Contains(" Greed ") || messageText.Contains("Need on") || messageText.Contains("Greed on")))
+            {
+                ProcessRollMessage(messageText, message);
+            }
+            else if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
             {
                 ProcessObtainMessage(messageText, message);
             }
@@ -93,6 +155,10 @@ public class LootTrackingService : IDisposable
             else if (messageText.Contains("You exchange") && messageText.Contains(" for "))
             {
                 ProcessExchangeMessage(messageText, message);
+            }
+            else if (messageText.Contains("A bonus of") && messageText.Contains("gil has been awarded for using the duty roulette"))
+            {
+                ProcessRouletteBonusMessage(messageText, message);
             }
         }
         catch (Exception ex)
@@ -203,7 +269,8 @@ public class LootTrackingService : IDisposable
                     
                     // Check if the next part is a unit word: "2 chunks of ItemName"
                     var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
-                                           "bottles of ", "bottle of ", "pieces of ", "piece of " };
+                                           "bottles of ", "bottle of ", "pieces of ", "piece of ",
+                                           "phials of ", "phial of ", "stalks of ", "stalk of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -223,7 +290,7 @@ public class LootTrackingService : IDisposable
                     var rest = parts[1];
                     
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of " };
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -239,7 +306,9 @@ public class LootTrackingService : IDisposable
                 else if (quantityPart.Equals("chunks", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("pinches", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("bottles", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("pieces", StringComparison.OrdinalIgnoreCase))
+                         quantityPart.Equals("pieces", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("phials", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("stalks", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1; // Default to 1 if no number specified
                     var rest = parts[1];
@@ -315,6 +384,60 @@ public class LootTrackingService : IDisposable
                 TerritoryType = Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName()
             };
+
+            // Check if there was a roll for this item
+            lock (rollLock)
+            {
+                var itemId = itemData?.ItemId ?? 0;
+                // Find the first roll for this item that doesn't have a winner yet
+                var rollInfo = itemId > 0 ? activeRolls.FirstOrDefault(r => r.ItemId == itemId && string.IsNullOrEmpty(r.WinnerName)) : null;
+                
+                if (rollInfo != null)
+                {
+                    string winnerRollName = string.Empty;
+                    
+                    // Try exact match first
+                    if (rollInfo.PlayerRolls.TryGetValue(playerName, out var roll))
+                    {
+                        lootItem.RollType = roll.RollType;
+                        lootItem.RollValue = roll.RollValue;
+                        winnerRollName = playerName;
+                        Plugin.Log.Info($"Adding roll info to loot (exact match): {roll.RollType} {roll.RollValue}");
+                    }
+                    else
+                    {
+                        // Try partial match (for truncated names like "Kaia  Tanne" vs "Kaia TanneSagittarius")
+                        // Clean up the player name by removing extra spaces
+                        var cleanedPlayerName = playerName.Replace("  ", " ").Trim();
+                        
+                        foreach (var kvp in rollInfo.PlayerRolls)
+                        {
+                            var rollPlayerName = kvp.Key;
+                            // Check if roll player name starts with the truncated obtained player name
+                            if (rollPlayerName.StartsWith(cleanedPlayerName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                lootItem.RollType = kvp.Value.RollType;
+                                lootItem.RollValue = kvp.Value.RollValue;
+                                winnerRollName = rollPlayerName;
+                                Plugin.Log.Info($"Adding roll info to loot (partial match '{cleanedPlayerName}' -> '{rollPlayerName}'): {kvp.Value.RollType} {kvp.Value.RollValue}");
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Mark the winner in the roll info
+                    if (!string.IsNullOrEmpty(winnerRollName))
+                    {
+                        rollInfo.WinnerName = winnerRollName;
+                        Plugin.Log.Info($"Winner marked: {winnerRollName} won {itemName}");
+                        
+                        // Notify that rolls have been updated (winner marked)
+                        RollsUpdated?.Invoke();
+                    }
+                    
+                    // Don't remove yet - let the RollWindow handle cleanup after display timeout
+                }
+            }
 
             AddLootItem(lootItem);
             
@@ -410,7 +533,8 @@ public class LootTrackingService : IDisposable
                     
                     // Check if the next part is a unit word: "2 chunks of ItemName"
                     var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
-                                           "bottles of ", "bottle of ", "pieces of ", "piece of " };
+                                           "bottles of ", "bottle of ", "pieces of ", "piece of ",
+                                           "phials of ", "phial of ", "stalks of ", "stalk of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -430,7 +554,7 @@ public class LootTrackingService : IDisposable
                     var rest = parts[1];
                     
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of " };
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -629,6 +753,8 @@ public class LootTrackingService : IDisposable
             "pinches of ", "pinch of ",
             "bottles of ", "bottle of ",
             "pieces of ", "piece of ",
+            "phials of ", "phial of ",
+            "stalks of ", "stalk of ",
             "handfuls of ", "handful of ",
             "portions of ", "portion of "
         };
@@ -699,11 +825,44 @@ public class LootTrackingService : IDisposable
                 }
             }
             
-            // Try without 's' at the end (plural -> singular)
-            // Case-insensitive check for 's' or 'S' at the end
-            if (searchName.Length > 2 && (searchName.EndsWith("s", StringComparison.OrdinalIgnoreCase)))
+            // Try plural to singular conversions
+            var singularForms = new List<string>();
+            
+            // Handle common plural patterns
+            if (searchName.EndsWith("ies", StringComparison.OrdinalIgnoreCase))
             {
-                var singularName = searchName.Substring(0, searchName.Length - 1);
+                // berries -> berry
+                singularForms.Add(searchName.Substring(0, searchName.Length - 3) + "y");
+            }
+            else if (searchName.EndsWith("ves", StringComparison.OrdinalIgnoreCase))
+            {
+                // leaves -> leaf, knives -> knife
+                singularForms.Add(searchName.Substring(0, searchName.Length - 3) + "f");
+                singularForms.Add(searchName.Substring(0, searchName.Length - 3) + "fe");
+            }
+            else if (searchName.EndsWith("xes", StringComparison.OrdinalIgnoreCase))
+            {
+                // boxes -> box
+                singularForms.Add(searchName.Substring(0, searchName.Length - 2));
+            }
+            else if (searchName.EndsWith("ses", StringComparison.OrdinalIgnoreCase))
+            {
+                // glasses -> glass
+                singularForms.Add(searchName.Substring(0, searchName.Length - 2));
+            }
+            else if (searchName.EndsWith("ixes", StringComparison.OrdinalIgnoreCase))
+            {
+                // helixes -> helix,ixes -> ix
+                singularForms.Add(searchName.Substring(0, searchName.Length - 2));
+            }
+            else if (searchName.EndsWith("s", StringComparison.OrdinalIgnoreCase) && searchName.Length > 2)
+            {
+                // Basic plural: items -> item
+                singularForms.Add(searchName.Substring(0, searchName.Length - 1));
+            }
+            
+            foreach (var singularName in singularForms)
+            {
                 Plugin.Log.Info("Trying singular form: '{SingularName}'", singularName);
                 foreach (var item in itemSheet)
                 {
@@ -1238,6 +1397,329 @@ public class LootTrackingService : IDisposable
         }
     }
 
+    private void ProcessRouletteBonusMessage(string messageText, SeString message)
+    {
+        // Handle "A bonus of 12,000 gil has been awarded for using the duty roulette."
+        try
+        {
+            var localPlayer = Plugin.ClientState.LocalPlayer;
+            if (localPlayer == null) return;
+
+            // Extract gil amount from message
+            // Pattern: "A bonus of X gil has been awarded"
+            var match = System.Text.RegularExpressions.Regex.Match(messageText, @"A bonus of ([\d,]+) gil");
+            if (!match.Success)
+            {
+                Plugin.Log.Debug("Could not parse roulette bonus amount from: {Message}", messageText);
+                return;
+            }
+
+            var gilAmountStr = match.Groups[1].Value.Replace(",", "");
+            if (!uint.TryParse(gilAmountStr, out uint gilAmount))
+            {
+                Plugin.Log.Warning("Failed to parse gil amount: {Amount}", match.Groups[1].Value);
+                return;
+            }
+
+            // Gil item ID in FFXIV is 1 (the standard currency)
+            var itemData = GetItemDataById(1);
+            
+            if (itemData.HasValue)
+            {
+                var lootItem = new LootItem
+                {
+                    ItemName = itemData.Value.Name, // Just use "Gil"
+                    ItemId = itemData.Value.ItemId,
+                    IconId = itemData.Value.IconId,
+                    Rarity = itemData.Value.Rarity,
+                    Quantity = gilAmount,
+                    IsHQ = false,
+                    PlayerName = localPlayer.Name.TextValue,
+                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    IsOwnLoot = true,
+                    Source = LootSource.DutyRoulette,
+                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    ZoneName = GetCurrentZoneName()
+                };
+
+                AddLootItem(lootItem);
+                Plugin.Log.Info($"Duty Roulette Bonus tracked: {gilAmount:N0} gil");
+            }
+            else
+            {
+                Plugin.Log.Warning("Could not find gil item data (ID 1)");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing roulette bonus message: {Message}", messageText);
+        }
+    }
+
+    private void ProcessLootListAddedMessage(string messageText, SeString message)
+    {
+        // Handle "A pair of demon boots has been added to the loot list."
+        // This marks the start of a roll session for an item
+        try
+        {
+            Plugin.Log.Info($"Processing loot list added: {messageText}");
+            
+            // Extract item from payload
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Info($"Found item payload in loot list: {itemNameFromPayload} (ID: {itemIdFromPayload})");
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(itemNameFromPayload))
+            {
+                // Try to parse from text as fallback
+                // Formats: 
+                // - "A [item name] has been added to the loot list."
+                // - "An [item name] has been added to the loot list."  
+                // - "[item name] has been added to the loot list." (no article)
+                var match = System.Text.RegularExpressions.Regex.Match(messageText, @"^(?:A |An )?(.+?) has been added to the loot list\.");
+                if (match.Success)
+                {
+                    itemNameFromPayload = match.Groups[1].Value;
+                    Plugin.Log.Info($"Extracted item from text: {itemNameFromPayload}");
+                }
+            }
+
+            if (string.IsNullOrEmpty(itemNameFromPayload))
+            {
+                Plugin.Log.Warning($"Could not extract item name from loot list message: {messageText}");
+                return;
+            }
+
+            // Get full item data
+            var itemData = itemIdFromPayload.HasValue 
+                ? GetItemDataById(itemIdFromPayload.Value) 
+                : FindItemByName(itemNameFromPayload);
+
+            if (!itemData.HasValue)
+            {
+                Plugin.Log.Warning($"Could not find item data for: {itemNameFromPayload}");
+                return;
+            }
+
+            // Create or update roll tracking for this item
+            lock (rollLock)
+            {
+                var itemId = itemData.Value.ItemId;
+                var itemName = itemData.Value.Name;
+                
+                // Always add a new roll session (allows multiple drops of the same item)
+                activeRolls.Add(new RollInfo
+                {
+                    ItemName = itemName,
+                    ItemId = itemId,
+                    IconId = itemData.Value.IconId,
+                    Rarity = itemData.Value.Rarity,
+                    RollStartTime = DateTime.Now
+                });
+                
+                Plugin.Log.Info($"Roll session started for: {itemName} (ID: {itemId})");
+                Plugin.Log.Info($"Total active roll sessions: {activeRolls.Count}");
+                
+                // Notify that rolls have been updated
+                RollsUpdated?.Invoke();
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing loot list added message: {Message}", messageText);
+        }
+    }
+
+    private void ProcessRollMessage(string messageText, SeString message)
+    {
+        // Handle roll messages:
+        // - "You roll Need on the ItemName. 95!"
+        // - "You roll Greed on the ItemName. 42!"
+        // - "PlayerName rolls Need on the ItemName. 87!"
+        // - "You cast your lot for the ItemName." (Pass) - we ignore these
+        try
+        {
+            Plugin.Log.Debug($"ProcessRollMessage called with: {messageText}");
+            
+            // Extract item from payload
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug($"Found item payload: {itemNameFromPayload} (ID: {itemIdFromPayload})");
+                    break;
+                }
+            }
+
+            // Parse roll type and value
+            string playerName;
+            string rollType;
+            int rollValue = 0;
+            string itemName = itemNameFromPayload ?? "";
+
+            // Pattern: "You roll Need/Greed on [the/a] ItemName. XX!"
+            // Pattern: "PlayerName rolls Need/Greed on [the/a] ItemName. XX!"
+            if (messageText.StartsWith("You roll "))
+            {
+                playerName = Plugin.ClientState.LocalPlayer?.Name.TextValue ?? "You";
+                
+                if (messageText.Contains("roll Need on "))
+                {
+                    rollType = "Need";
+                    var match = System.Text.RegularExpressions.Regex.Match(messageText, @"\.?\s*(\d+)!");
+                    if (match.Success)
+                        rollValue = int.Parse(match.Groups[1].Value);
+                }
+                else if (messageText.Contains("roll Greed on "))
+                {
+                    rollType = "Greed";
+                    var match = System.Text.RegularExpressions.Regex.Match(messageText, @"\.?\s*(\d+)!");
+                    if (match.Success)
+                        rollValue = int.Parse(match.Groups[1].Value);
+                }
+                else
+                {
+                    return; // Pass or unknown
+                }
+            }
+            else if (messageText.Contains(" rolls "))
+            {
+                // Extract player name - format: "PlayerNameServer rolls Need on the item. 95!"
+                var rollsIndex = messageText.IndexOf(" rolls ");
+                if (rollsIndex == -1)
+                {
+                    Plugin.Log.Debug("Could not find ' rolls ' in message");
+                    return;
+                }
+                
+                playerName = messageText.Substring(0, rollsIndex).Trim();
+                Plugin.Log.Debug($"Extracted player name: {playerName}");
+                
+                if (messageText.Contains("rolls Need on "))
+                {
+                    rollType = "Need";
+                    // Match the number before the exclamation mark: ". 95!"
+                    var match = System.Text.RegularExpressions.Regex.Match(messageText, @"\.\s*(\d+)!");
+                    if (match.Success)
+                    {
+                        rollValue = int.Parse(match.Groups[1].Value);
+                        Plugin.Log.Debug($"Extracted Need roll value: {rollValue}");
+                    }
+                    else
+                    {
+                        Plugin.Log.Debug($"Could not extract roll value from: {messageText}");
+                    }
+                }
+                else if (messageText.Contains("rolls Greed on "))
+                {
+                    rollType = "Greed";
+                    // Match the number before the exclamation mark: ". 42!"
+                    var match = System.Text.RegularExpressions.Regex.Match(messageText, @"\.\s*(\d+)!");
+                    if (match.Success)
+                    {
+                        rollValue = int.Parse(match.Groups[1].Value);
+                        Plugin.Log.Debug($"Extracted Greed roll value: {rollValue}");
+                    }
+                    else
+                    {
+                        Plugin.Log.Debug($"Could not extract roll value from: {messageText}");
+                    }
+                }
+                else
+                {
+                    Plugin.Log.Debug($"Not a Need/Greed roll, ignoring");
+                    return; // Pass or unknown
+                }
+            }
+            else
+            {
+                return; // Not a roll message we recognize
+            }
+
+            if (string.IsNullOrEmpty(itemName))
+            {
+                // Try to extract from message text
+                var onIndex = messageText.IndexOf(" on ");
+                if (onIndex > 0)
+                {
+                    var afterOn = messageText.Substring(onIndex + 4);
+                    // Remove "the " or "a "
+                    afterOn = afterOn.Replace("the ", "").Replace("a ", "");
+                    // Extract until the period
+                    var periodIndex = afterOn.IndexOf('.');
+                    if (periodIndex > 0)
+                    {
+                        itemName = afterOn.Substring(0, periodIndex).Trim();
+                    }
+                }
+            }
+
+            if (string.IsNullOrEmpty(itemName))
+                return;
+
+            // Get item data to get the item ID
+            var itemData = itemIdFromPayload.HasValue 
+                ? GetItemDataById(itemIdFromPayload.Value) 
+                : FindItemByName(itemName);
+
+            if (!itemData.HasValue)
+            {
+                Plugin.Log.Warning($"Could not find item data for roll: {itemName}");
+                return;
+            }
+
+            var itemId = itemData.Value.ItemId;
+            var cleanedPlayerName = CleanPlayerName(playerName);
+
+            // Track the roll - find an active roll for this item that doesn't have this player's roll yet
+            lock (rollLock)
+            {
+                // Find the first roll session for this item that doesn't have this player's roll
+                var rollInfo = activeRolls.FirstOrDefault(r => r.ItemId == itemId && !r.PlayerRolls.ContainsKey(cleanedPlayerName));
+                
+                if (rollInfo == null)
+                {
+                    // No matching session found, create a new one (shouldn't happen if loot list message was received)
+                    rollInfo = new RollInfo
+                    {
+                        ItemName = itemData.Value.Name,
+                        ItemId = itemId,
+                        IconId = itemData.Value.IconId,
+                        Rarity = itemData.Value.Rarity
+                    };
+                    activeRolls.Add(rollInfo);
+                    Plugin.Log.Warning($"Creating new roll session for {itemData.Value.Name} (loot list message may have been missed)");
+                }
+
+                rollInfo.PlayerRolls[cleanedPlayerName] = (rollType, rollValue);
+            }
+
+            Plugin.Log.Info($"Roll tracked: {cleanedPlayerName} rolled {rollType} {rollValue} on {itemData.Value.Name}");
+            
+            // Notify that rolls have been updated
+            RollsUpdated?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing roll message: {Message}", messageText);
+        }
+    }
+
     public void Dispose()
     {
         try
@@ -1258,5 +1740,35 @@ public class LootTrackingService : IDisposable
         {
             Plugin.Log.Error(ex, "Error disposing loot tracking service");
         }
+    }
+}
+
+/// <summary>
+/// Tracks information about an active loot roll
+/// </summary>
+public class RollInfo
+{
+    public string ItemName { get; set; } = string.Empty;
+    public uint ItemId { get; set; }
+    public uint IconId { get; set; }
+    public uint Rarity { get; set; }
+    public Dictionary<string, (string RollType, int RollValue)> PlayerRolls { get; set; } = new();
+    public DateTime RollStartTime { get; set; } = DateTime.Now;
+    public string WinnerName { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Get rolls sorted by value (highest first), with Need rolls before Greed
+    /// </summary>
+    public IEnumerable<(string PlayerName, string RollType, int RollValue, bool IsWinner)> GetSortedRolls()
+    {
+        return PlayerRolls
+            .Select(kvp => (
+                PlayerName: kvp.Key,
+                RollType: kvp.Value.RollType,
+                RollValue: kvp.Value.RollValue,
+                IsWinner: !string.IsNullOrEmpty(WinnerName) && kvp.Key == WinnerName
+            ))
+            .OrderByDescending(r => r.RollType == "Need" ? 1 : 0) // Need before Greed
+            .ThenByDescending(r => r.RollValue); // Then by roll value
     }
 }

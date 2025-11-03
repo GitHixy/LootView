@@ -559,8 +559,15 @@ public class HistoryService : IDisposable
 
                 if (completedRuns.Any())
                 {
-                    stats.FastestTimeMinutes = completedRuns.Min(r => r.DurationMinutes);
-                    stats.SlowestTimeMinutes = completedRuns.Max(r => r.DurationMinutes);
+                    // Filter out runs with unrealistic durations (< 1 minute) for best/worst time calculations
+                    var validDurations = completedRuns.Where(r => r.DurationMinutes >= 1.0).ToList();
+                    
+                    if (validDurations.Any())
+                    {
+                        stats.FastestTimeMinutes = validDurations.Min(r => r.DurationMinutes);
+                        stats.SlowestTimeMinutes = validDurations.Max(r => r.DurationMinutes);
+                    }
+                    
                     stats.BestItemsInRun = completedRuns.Max(r => r.ItemsObtained);
                 }
 
@@ -604,7 +611,7 @@ public class HistoryService : IDisposable
         lock (historyLock)
         {
             return history.DutyRuns
-                .Where(r => r.ContentId == contentId && r.Completed)
+                .Where(r => r.ContentId == contentId && r.Completed && r.DurationMinutes >= 1.0)
                 .OrderBy(r => r.DurationMinutes)
                 .Take(count)
                 .ToList();

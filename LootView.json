@@ -3,7 +3,7 @@
   "Name": "LootView",
   "Punchline": "Comprehensive loot tracking with statistics and analytics",
   "InternalName": "LootView",
-  "AssemblyVersion": "1.2.0.0",
+  "AssemblyVersion": "1.2.5.0",
   "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles and transparency. Now with Zone Finder and duty loot tables powered by Garland Tools API!",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,

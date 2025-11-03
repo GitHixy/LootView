@@ -1,18 +1,27 @@
 # LootView
 
-A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statistics and analytics. Built as a Dalamud plugin.
+A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statistics, real-time roll monitoring, and zone loot tables. Built as a Dalamud plugin.
 
 ## ✨ Features
 
-### 🎯 Real-Time Loot Tracking
+### 🎯 Real-Time Loot & Roll Tracking
 - **Live Display**: Automatically detects and displays loot as you obtain it
+- **Roll Monitoring**: Real-time Need/Greed roll tracking with compact auto-closing window
 - **Item Icons**: Shows actual item icons from the game with crisp rendering
 - **Rarity Colors**: Items colored by their in-game rarity (white/green/blue/purple/pink)
 - **Highlight Animation**: New items pulse with a golden glow for visibility
 - **Party Loot Display**: See who obtained what items (color-coded by player)
 - **Smart Detection**: Works with combat, gathering, retainers, dungeons, raids, and more
+- **Bonus Tracking**: Automatically tracks duty roulette bonus gil rewards
 
-### 📊 Advanced Statistics & Analytics
+### �️ Zone Finder & Loot Tables
+- **Browse Any Duty**: View loot tables for any dungeon, trial, or raid
+- **Search by Name**: Find duties by typing their name
+- **Garland Tools Integration**: Powered by comprehensive Garland Tools API
+- **Current Zone Loading**: Automatically load loot table for your current duty
+- **Work-in-Progress Disclaimer**: Clear messaging about ongoing improvements
+
+### �📊 Advanced Statistics & Analytics
 - **Comprehensive Dashboard**: Overview of all your loot activity
 - **Duty Tracker**: Track items obtained per duty/instance run
 - **History Browser**: Search and filter through your complete loot history
@@ -51,8 +60,10 @@ A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statist
 ### Main Window Controls
 - **Clear All** - Clear current session's loot display
 - **Stats Button** 📊 - Open Statistics & History window
+- **Table Button** 📋 - Open Zone Loot Table window (when in duty)
 - **Lock Button** 🔒 - Lock/unlock window position and size
 - **Config Button** ⚙️ - Open settings
+- **Ko-fi Button** ☕ - Support plugin development
 - **Show Only My Loot** - Filter to show only your loot in party
 - **Style Selector** - Switch between visual styles
 
@@ -90,6 +101,30 @@ If you encounter any issues or have questions:
 
 ## Changelog
 
+### Version 1.2.5
+
+#### ✨ Major Features Added
+- **🎯 Real-Time Roll Tracking**: Live Need/Greed roll monitoring with auto-closing compact window
+- **🗺️ Zone Finder & Loot Tables**: Browse and search loot tables for any duty, powered by Garland Tools API
+- **💰 Duty Roulette Bonus Tracking**: Automatically tracks bonus gil from duty roulette completions
+- **☕ Ko-fi Integration**: Support plugin development with built-in donation button
+
+#### 🔧 Enhanced Loot Parsing
+- **📦 Unit Words Support**: Added parsing for "Phials of", "Stalks of", "Chunks of", "Bottles of", "Pieces of", "Handfuls of", "Portions of"
+- **📝 Improved Plural Handling**: Enhanced detection for irregular plurals (-ixes→-ix, -xes→-x, -ses→-s, -ies→-y, -ves→-f/-fe)
+- **📋 Enhanced Loot List Detection**: Improved regex for all loot list message formats ("A", "An", or no article)
+- **👥 Player Name Cleaning**: Automatic server suffix removal from player names
+
+#### 🎮 Roll System Improvements
+- **📊 Multiple Item Support**: Handle multiple drops of the same item in roll tracking
+- **⏰ Auto-Close Timer**: Roll window automatically closes 15 seconds after all winners are determined
+- **🧹 Smart Cleanup**: Manual window close clears all active rolls, auto-close only clears completed
+- **🔄 Real-Time Updates**: Live roll display with countdown timer in window title
+
+#### 💡 User Experience Enhancements
+- **⚠️ Loot Table Disclaimer**: Clear messaging about work-in-progress status and ongoing improvements
+- **🎨 Improved UI Styling**: Enhanced button layouts and Ko-fi brand integration
+- **🚨 Manual History Cleanup**: Clear UI messaging that history cleanup is manual-only operation
 
 ### Version 1.2.0
 

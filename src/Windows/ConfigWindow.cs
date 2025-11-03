@@ -208,18 +208,11 @@ public class ConfigWindow : Window
                         ImGui.SetTooltip("Save current items to persistent history when clearing the display list");
                     }
                     
-                    int retentionDays = config.HistoryRetentionDays;
-                    if (ImGui.SliderInt("Retention Days", ref retentionDays, 7, 365))
-                    {
-                        config.HistoryRetentionDays = retentionDays;
-                        configService.Save();
-                    }
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.SetTooltip("Number of days to keep in history before automatic cleanup");
-                    }
+                    ImGui.Spacing();
+                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.9f, 0.5f, 1.0f));
+                    ImGui.TextWrapped("ℹ History is kept forever unless you manually delete it.");
+                    ImGui.PopStyleColor();
+                    ImGui.TextWrapped("Use Statistics > Data Management to clean up old history if needed.");
                     
                     ImGui.Unindent();
                 }

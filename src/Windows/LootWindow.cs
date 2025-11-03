@@ -128,8 +128,8 @@ public class LootWindow : Window
             var clearButtonWidth = 70f; // "Clear All" button width
             var spacing = ImGui.GetStyle().ItemSpacing.X;
             
-            // Calculate button count: base 3 (Stats, Lock, Config) + 1 if in duty (Table)
-            var buttonCount = isInDuty ? 4 : 3;
+            // Calculate button count: base 4 (Stats, Lock, Config, Ko-fi) + 1 if in duty (Table)
+            var buttonCount = isInDuty ? 5 : 4;
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + availableWidth - clearButtonWidth - (iconButtonWidth * buttonCount) - (spacing * buttonCount));
             
             // Clear All button
@@ -189,6 +189,25 @@ public class LootWindow : Window
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip("Open Settings");
+            }
+            
+            // Ko-fi donation button
+            ImGui.SameLine();
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.13f, 0.59f, 0.95f, 1.0f)); // Ko-fi blue
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.16f, 0.65f, 1.0f, 1.0f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.10f, 0.53f, 0.85f, 1.0f));
+            if (ImGuiComponents.IconButton("KofiButton", FontAwesomeIcon.Coffee, new Vector2(iconButtonWidth, 0)))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "https://ko-fi.com/hixyllian",
+                    UseShellExecute = true
+                });
+            }
+            ImGui.PopStyleColor(3);
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("☕ Support development - Buy me a coffee!\nClick to open Ko-fi page");
             }
             
             ImGui.Separator();
@@ -588,6 +607,16 @@ public class LootWindow : Window
         ImGui.Text($"Item ID: {item.ItemId}");
         ImGui.Text($"Rarity: {GetRarityName(item.Rarity)}");
         ImGui.PopStyleColor();
+        
+        // Roll info (if applicable)
+        if (!string.IsNullOrEmpty(item.RollType))
+        {
+            ImGui.Separator();
+            var rollColor = item.RollType == "Need" ? new Vector4(0.3f, 1.0f, 0.3f, 1.0f) : new Vector4(0.3f, 0.7f, 1.0f, 1.0f);
+            ImGui.PushStyleColor(ImGuiCol.Text, rollColor);
+            ImGui.Text($"🎲 {item.RollType}: {item.RollValue}");
+            ImGui.PopStyleColor();
+        }
         
         // Location info (only if we have zone name)
         if (!string.IsNullOrEmpty(item.ZoneName))

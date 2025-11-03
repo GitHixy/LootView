@@ -3,7 +3,7 @@
     "Author": "GitHixy",
     "Name": "LootView",
     "InternalName": "LootView",
-    "AssemblyVersion": "1.2.0.0",
+    "AssemblyVersion": "1.2.5.0",
     "Punchline": "Comprehensive loot tracking with statistics and analytics",
     "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles, window locking, transparency controls, and server info bar integration. NEW: Zone Finder to search and view loot tables for any dungeon, trial, or raid powered by Garland Tools API!",
     "ApplicableVersion": "any",
@@ -16,7 +16,7 @@
     "DownloadLinkTesting": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadLinkUpdate": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadCount": 0,
-    "LastUpdated": "2025-11-03T00:00:00Z",
+    "LastUpdated": "2025-11-03T12:00:00Z",
     "Tags": [
       "loot",
       "tracking",

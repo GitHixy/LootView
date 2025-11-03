@@ -76,6 +76,16 @@ public class LootItem
     /// The zone name where this item was obtained
     /// </summary>
     public string ZoneName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Roll information if obtained via Need/Greed roll
+    /// </summary>
+    public string RollType { get; set; } = string.Empty; // "Need", "Greed", or empty
+
+    /// <summary>
+    /// Roll value if obtained via Need/Greed roll
+    /// </summary>
+    public int RollValue { get; set; }
 }
 
 /// <summary>
@@ -92,5 +102,6 @@ public enum LootSource
     Purchase,
     Extraction,
     Exchange,
+    DutyRoulette,
     Other
 }
