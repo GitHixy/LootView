@@ -121,6 +121,12 @@ public class LootTrackingService : IDisposable
                 Plugin.Log.Debug($"Chat [{type}]: {messageText}");
             }
             
+            // Always log fishing messages for debugging
+            if (messageText.Contains("You land"))
+            {
+                Plugin.Log.Info($"Detected fishing-like message [{type}]: {messageText}");
+            }
+            
             // Detect loot messages:
             // - "You obtain X ItemName" (your loot)
             // - "PlayerName obtains X ItemName" (party member loot)
@@ -131,6 +137,7 @@ public class LootTrackingService : IDisposable
             // - "You roll Need/Greed on the ItemName. XX!" (roll tracking)
             // - "PlayerName rolls Need/Greed on the ItemName. XX!" (party roll tracking)
             // - "A ItemName has been added to the loot list." (roll started)
+            // - "You land a ItemName measuring N ilms!" (fishing)
             if (messageText.Contains("has been added to the loot list"))
             {
                 ProcessLootListAddedMessage(messageText, message);
@@ -139,6 +146,10 @@ public class LootTrackingService : IDisposable
                 (messageText.Contains(" Need ") || messageText.Contains(" Greed ") || messageText.Contains("Need on") || messageText.Contains("Greed on")))
             {
                 ProcessRollMessage(messageText, message);
+            }
+            else if ((messageText.Contains("land a") || messageText.Contains("land an")) && messageText.Contains("ilms!"))
+            {
+                ProcessFishingMessage(messageText, message);
             }
             else if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
             {
@@ -270,7 +281,8 @@ public class LootTrackingService : IDisposable
                     // Check if the next part is a unit word: "2 chunks of ItemName"
                     var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
                                            "bottles of ", "bottle of ", "pieces of ", "piece of ",
-                                           "phials of ", "phial of ", "stalks of ", "stalk of " };
+                                           "phials of ", "phial of ", "stalks of ", "stalk of ",
+                                           "sets of ", "set of ", "bundles of ", "bundle of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -338,6 +350,9 @@ public class LootTrackingService : IDisposable
             {
                 itemName = itemName.Replace(" HQ", "").Trim();
             }
+            
+            // Remove surrounding quotes if present (from some chat formats)
+            itemName = itemName.Trim('"', '\'', ' ');
             
             // If we have item ID from payload, use it directly; otherwise try to find by name
             (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
@@ -534,7 +549,8 @@ public class LootTrackingService : IDisposable
                     // Check if the next part is a unit word: "2 chunks of ItemName"
                     var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
                                            "bottles of ", "bottle of ", "pieces of ", "piece of ",
-                                           "phials of ", "phial of ", "stalks of ", "stalk of " };
+                                           "phials of ", "phial of ", "stalks of ", "stalk of ",
+                                           "sets of ", "set of ", "bundles of ", "bundle of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -583,6 +599,9 @@ public class LootTrackingService : IDisposable
             {
                 itemName = itemName.Replace(" HQ", "").Trim();
             }
+            
+            // Remove surrounding quotes if present (from some chat formats)
+            itemName = itemName.Trim('"', '\'', ' ');
             
             // If we have item ID from payload, use it directly; otherwise try to find by name
             (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
@@ -635,6 +654,137 @@ public class LootTrackingService : IDisposable
         catch (Exception ex)
         {
             Plugin.Log.Error(ex, "Error processing passive obtain message: {Message}", messageText);
+        }
+    }
+
+    private void ProcessFishingMessage(string messageText, SeString message)
+    {
+        try
+        {
+            Plugin.Log.Info($"Processing fishing message: {messageText}");
+            
+            var localPlayer = Plugin.ClientState.LocalPlayer;
+            if (localPlayer == null) return;
+
+            // Format: "You land a ItemName measuring N ilms!"
+            // Extract item name and ID from SeString payload
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            uint? iconIdFromPayload = null;
+            uint? rarityFromPayload = null;
+            
+            // Log all payloads for debugging
+            Plugin.Log.Info($"Fishing message has {message.Payloads.Count} payloads");
+            foreach (var payload in message.Payloads)
+            {
+                Plugin.Log.Info($"Payload type: {payload.GetType().Name}");
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    Plugin.Log.Info($"Found item payload (fishing): ID={itemPayload.ItemId}");
+                    
+                    // Get item data from Lumina using the ID
+                    var itemData = GetItemDataById(itemPayload.ItemId);
+                    if (itemData.HasValue)
+                    {
+                        itemNameFromPayload = itemData.Value.Name;
+                        iconIdFromPayload = itemData.Value.IconId;
+                        rarityFromPayload = itemData.Value.Rarity;
+                        Plugin.Log.Info($"Got item data from Lumina: Name={itemNameFromPayload}, Icon={iconIdFromPayload}, Rarity={rarityFromPayload}");
+                    }
+                    break;
+                }
+            }
+
+            if (itemIdFromPayload == null || string.IsNullOrEmpty(itemNameFromPayload))
+            {
+                Plugin.Log.Warning($"Could not extract item from fishing message via payload: {messageText}");
+                Plugin.Log.Warning($"Attempting to parse item name from text...");
+                
+                // Fallback: try to parse the item name from the message text
+                // Format: "You land a [item name] measuring X.X ilms!" or "You land an [item name] measuring X.X ilms!"
+                var landIndex = messageText.IndexOf("land a ");
+                var landOffset = 7; // length of "land a "
+                
+                if (landIndex < 0)
+                {
+                    landIndex = messageText.IndexOf("land an ");
+                    landOffset = 8; // length of "land an "
+                }
+                
+                var measuringIndex = messageText.IndexOf(" measuring ");
+                if (landIndex >= 0 && measuringIndex > landIndex)
+                {
+                    var extractedName = messageText.Substring(landIndex + landOffset, measuringIndex - (landIndex + landOffset)).Trim();
+                    Plugin.Log.Info($"Extracted item name from text: {extractedName}");
+                    
+                    // Try to find item ID from Lumina
+                    var itemData = FindItemByName(extractedName);
+                    if (itemData.HasValue)
+                    {
+                        itemIdFromPayload = itemData.Value.ItemId;
+                        itemNameFromPayload = itemData.Value.Name;
+                        iconIdFromPayload = itemData.Value.IconId;
+                        rarityFromPayload = itemData.Value.Rarity;
+                        Plugin.Log.Info($"Found item in Lumina: ID={itemIdFromPayload}, Name={itemNameFromPayload}, Icon={iconIdFromPayload}");
+                    }
+                    else
+                    {
+                        Plugin.Log.Warning($"Could not find item in Lumina for: {extractedName}");
+                        return;
+                    }
+                }
+                else
+                {
+                    Plugin.Log.Warning($"Could not parse item name from fishing message");
+                    return;
+                }
+            }
+
+            string itemName = itemNameFromPayload;
+            uint quantity = 1; // Fishing always gives 1 item
+            bool isHQ = messageText.Contains(" HQ") || itemName.Contains(" HQ");
+
+            // Remove HQ suffix if present
+            if (itemName.EndsWith(" HQ"))
+            {
+                itemName = itemName.Substring(0, itemName.Length - 3).Trim();
+            }
+
+            // Extract ilms measurement from message: "measuring X.X ilms!"
+            var measuringIdx = messageText.IndexOf(" measuring ");
+            var ilmsIdx = messageText.IndexOf(" ilms!");
+            if (measuringIdx >= 0 && ilmsIdx > measuringIdx)
+            {
+                var ilmsValue = messageText.Substring(measuringIdx + 11, ilmsIdx - (measuringIdx + 11)).Trim();
+                itemName = $"{itemName} [{ilmsValue} ilms]";
+                Plugin.Log.Info($"Added ilms to fish name: {itemName}");
+            }
+
+            var lootItem = new LootItem
+            {
+                ItemId = itemIdFromPayload.Value,
+                ItemName = itemName,
+                IconId = iconIdFromPayload ?? 0,
+                Rarity = rarityFromPayload ?? 1,
+                Quantity = quantity,
+                IsHQ = isHQ,
+                Timestamp = DateTime.Now,
+                PlayerName = localPlayer.Name.TextValue,
+                PlayerContentId = Plugin.ClientState.LocalContentId,
+                IsOwnLoot = true,
+                Source = LootSource.Gathering, // Fishing counts as gathering
+                TerritoryType = Plugin.ClientState.TerritoryType,
+                ZoneName = GetCurrentZoneName()
+            };
+
+            AddLootItem(lootItem);
+            
+            Plugin.Log.Info($"Loot tracked (fishing): {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing fishing message: {Message}", messageText);
         }
     }
 
@@ -744,6 +894,16 @@ public class LootTrackingService : IDisposable
         
         cleaned = cleaned.Trim();
         
+        // Remove surrounding quotes if present
+        if (cleaned.StartsWith("\"") && cleaned.EndsWith("\"") && cleaned.Length > 1)
+        {
+            cleaned = cleaned.Substring(1, cleaned.Length - 2).Trim();
+        }
+        if (cleaned.StartsWith("'") && cleaned.EndsWith("'") && cleaned.Length > 1)
+        {
+            cleaned = cleaned.Substring(1, cleaned.Length - 2).Trim();
+        }
+        
         // Remove unit words that appear in gathering/crafting materials
         // These need to be stripped to match the actual item names in Lumina
         var unitPrefixes = new[] 
@@ -756,7 +916,9 @@ public class LootTrackingService : IDisposable
             "phials of ", "phial of ",
             "stalks of ", "stalk of ",
             "handfuls of ", "handful of ",
-            "portions of ", "portion of "
+            "portions of ", "portion of ",
+            "sets of ", "set of ",
+            "bundles of ", "bundle of "
         };
         
         foreach (var prefix in unitPrefixes)
