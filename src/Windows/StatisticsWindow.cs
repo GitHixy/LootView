@@ -30,12 +30,33 @@ public class StatisticsWindow : Window
     private string sortColumn = "Timestamp";
     private bool sortDescending = true;
     
+    // Cache for filtered history to prevent recalculating every frame
+    private List<LootItem> cachedFilteredItems = null;
+    private string lastSearchQuery = "";
+    private uint lastFilterRarity = 999;
+    private string lastFilterZone = "";
+    private bool lastFilterOwnLootOnly = false;
+    private bool lastFilterHQOnly = false;
+    private string lastSortColumn = "Timestamp";
+    private bool lastSortDescending = true;
+    private DateTime lastHistoryUpdate = DateTime.MinValue;
+    
+    // Icon texture cache to prevent loading the same icon multiple times
+    private Dictionary<uint, Dalamud.Interface.Textures.ISharedImmediateTexture> iconCache = new();
+    
     // For analytics
     private int comparisonDays = 7;
+    private LootStatistics cachedCurrentStats = null;
+    private LootStatistics cachedPreviousStats = null;
+    private int lastComparisonDays = 7;
+    private DateTime lastAnalyticsUpdate = DateTime.MinValue;
 
     // For duty tracker
     private string selectedContentType = "All";
     private uint selectedDutyId = 0;
+    private Dictionary<uint, DutyStatistics> cachedDutyStats = null;
+    private List<DutyRun> cachedRecentRuns = null;
+    private DateTime lastDutyStatsUpdate = DateTime.MinValue;
 
     // For zone finder
     private string zoneSearchQuery = "";
@@ -57,8 +78,8 @@ public class StatisticsWindow : Window
         // Apply background alpha from configuration
         BgAlpha = plugin.Configuration.BackgroundAlpha;
         
-        // Refresh stats every 5 seconds or when stale
-        if ((DateTime.Now - lastStatsUpdate).TotalSeconds > 5)
+        // Only refresh stats if cache is null (first open)
+        if (cachedStats == null)
         {
             RefreshStatistics();
         }
@@ -391,40 +412,66 @@ public class StatisticsWindow : Window
         ImGui.Separator();
         ImGui.Spacing();
 
-        // Get filtered history
+        // Check if we need to recalculate the filtered items
         var history = plugin.HistoryService.GetHistory();
-        var items = history.AllItems.AsEnumerable();
+        bool filtersChanged = searchQuery != lastSearchQuery ||
+                             filterRarity != lastFilterRarity ||
+                             filterZone != lastFilterZone ||
+                             filterHQOnly != lastFilterHQOnly ||
+                             filterOwnLootOnly != lastFilterOwnLootOnly ||
+                             sortColumn != lastSortColumn ||
+                             sortDescending != lastSortDescending ||
+                             cachedFilteredItems == null ||
+                             (DateTime.Now - lastHistoryUpdate).TotalSeconds > 5; // Refresh every 5 seconds
 
-        // Apply all filters
-        if (!string.IsNullOrWhiteSpace(searchQuery))
+        if (filtersChanged)
         {
-            items = items.Where(i => i.ItemName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
-        }
-        if (filterRarity != 999)
-        {
-            items = items.Where(i => i.Rarity == filterRarity);
-        }
-        if (!string.IsNullOrWhiteSpace(filterZone))
-        {
-            items = items.Where(i => i.ZoneName.Contains(filterZone, StringComparison.OrdinalIgnoreCase));
-        }
-        if (filterHQOnly)
-        {
-            items = items.Where(i => i.IsHQ);
-        }
-        if (filterOwnLootOnly)
-        {
-            items = items.Where(i => i.IsOwnLoot);
+            // Update cache tracking variables
+            lastSearchQuery = searchQuery;
+            lastFilterRarity = filterRarity;
+            lastFilterZone = filterZone;
+            lastFilterHQOnly = filterHQOnly;
+            lastFilterOwnLootOnly = filterOwnLootOnly;
+            lastSortColumn = sortColumn;
+            lastSortDescending = sortDescending;
+            lastHistoryUpdate = DateTime.Now;
+
+            // Recalculate filtered items
+            var items = history.AllItems.AsEnumerable();
+
+            // Apply all filters
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                items = items.Where(i => i.ItemName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+            }
+            if (filterRarity != 999)
+            {
+                items = items.Where(i => i.Rarity == filterRarity);
+            }
+            if (!string.IsNullOrWhiteSpace(filterZone))
+            {
+                items = items.Where(i => i.ZoneName.Contains(filterZone, StringComparison.OrdinalIgnoreCase));
+            }
+            if (filterHQOnly)
+            {
+                items = items.Where(i => i.IsHQ);
+            }
+            if (filterOwnLootOnly)
+            {
+                items = items.Where(i => i.IsOwnLoot);
+            }
+
+            // Apply sorting and cache the result
+            cachedFilteredItems = sortColumn switch
+            {
+                "ItemName" => sortDescending ? items.OrderByDescending(i => i.ItemName).ToList() : items.OrderBy(i => i.ItemName).ToList(),
+                "Rarity" => sortDescending ? items.OrderByDescending(i => i.Rarity).ToList() : items.OrderBy(i => i.Rarity).ToList(),
+                "Zone" => sortDescending ? items.OrderByDescending(i => i.ZoneName).ToList() : items.OrderBy(i => i.ZoneName).ToList(),
+                _ => sortDescending ? items.OrderByDescending(i => i.Timestamp).ToList() : items.OrderBy(i => i.Timestamp).ToList()
+            };
         }
 
-        // Apply sorting
-        var filteredItems = sortColumn switch
-        {
-            "ItemName" => sortDescending ? items.OrderByDescending(i => i.ItemName).ToList() : items.OrderBy(i => i.ItemName).ToList(),
-            "Rarity" => sortDescending ? items.OrderByDescending(i => i.Rarity).ToList() : items.OrderBy(i => i.Rarity).ToList(),
-            "Zone" => sortDescending ? items.OrderByDescending(i => i.ZoneName).ToList() : items.OrderBy(i => i.ZoneName).ToList(),
-            _ => sortDescending ? items.OrderByDescending(i => i.Timestamp).ToList() : items.OrderBy(i => i.Timestamp).ToList()
-        };
+        var filteredItems = cachedFilteredItems ?? new List<LootItem>();
         var totalPages = (int)Math.Ceiling(filteredItems.Count / (double)itemsPerPage);
 
         // Results info and pagination
@@ -641,14 +688,26 @@ public class StatisticsWindow : Window
         ImGui.Separator();
         ImGui.Spacing();
 
-        // Calculate comparison statistics
+        // Calculate comparison statistics (cached to prevent recalculating every frame)
         var currentPeriodEnd = DateTime.Now;
         var currentPeriodStart = currentPeriodEnd.AddDays(-comparisonDays);
         var previousPeriodEnd = currentPeriodStart;
         var previousPeriodStart = previousPeriodEnd.AddDays(-comparisonDays);
 
-        var currentStats = plugin.HistoryService.CalculateStatistics(currentPeriodStart, currentPeriodEnd);
-        var previousStats = plugin.HistoryService.CalculateStatistics(previousPeriodStart, previousPeriodEnd);
+        // Only recalculate if comparison days changed or cache is stale (5 seconds)
+        if (cachedCurrentStats == null || cachedPreviousStats == null || 
+            comparisonDays != lastComparisonDays ||
+            (DateTime.Now - lastAnalyticsUpdate).TotalSeconds > 5)
+        {
+            Plugin.Log.Info("Recalculating analytics comparison (expensive)");
+            cachedCurrentStats = plugin.HistoryService.CalculateStatistics(currentPeriodStart, currentPeriodEnd);
+            cachedPreviousStats = plugin.HistoryService.CalculateStatistics(previousPeriodStart, previousPeriodEnd);
+            lastComparisonDays = comparisonDays;
+            lastAnalyticsUpdate = DateTime.Now;
+        }
+
+        var currentStats = cachedCurrentStats;
+        var previousStats = cachedPreviousStats;
 
         // Items Comparison
         ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Items Obtained");
@@ -843,13 +902,22 @@ public class StatisticsWindow : Window
         ImGui.Separator();
         ImGui.Spacing();
 
-        // Get duty statistics
-        var dutyStats = plugin.HistoryService.CalculateDutyStatistics()
-            .Where(d => d.Value.ContentType != "Content Type 0")
-            .ToDictionary(k => k.Key, v => v.Value);
-        var recentRuns = plugin.HistoryService.GetRecentDutyRuns(50)
-            .Where(r => r.ContentType != "Content Type 0")
-            .ToList();
+        // Get duty statistics (cached to prevent recalculating every frame)
+        if (cachedDutyStats == null || cachedRecentRuns == null ||
+            (DateTime.Now - lastDutyStatsUpdate).TotalSeconds > 5)
+        {
+            Plugin.Log.Info("Recalculating duty statistics (expensive)");
+            cachedDutyStats = plugin.HistoryService.CalculateDutyStatistics()
+                .Where(d => d.Value.ContentType != "Content Type 0")
+                .ToDictionary(k => k.Key, v => v.Value);
+            cachedRecentRuns = plugin.HistoryService.GetRecentDutyRuns(50)
+                .Where(r => r.ContentType != "Content Type 0")
+                .ToList();
+            lastDutyStatsUpdate = DateTime.Now;
+        }
+        
+        var dutyStats = cachedDutyStats;
+        var recentRuns = cachedRecentRuns;
 
         // Tab bar for different views
         if (ImGui.BeginTabBar("DutyTrackerTabs"))
@@ -1246,27 +1314,8 @@ public class StatisticsWindow : Window
         ImGui.Spacing();
 
         ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.9f, 0.5f, 1.0f));
-        ImGui.TextWrapped("ℹ History is kept forever unless you manually delete it.");
+        ImGui.TextWrapped("ℹ History is kept forever. Use the export buttons above to backup your data.");
         ImGui.PopStyleColor();
-        ImGui.Spacing();
-        
-        ImGui.TextWrapped("Clean up old data to reduce file size. This will permanently remove items older than the specified number of days.");
-        ImGui.Spacing();
-
-        var retentionDays = plugin.Configuration.HistoryRetentionDays;
-        ImGui.SetNextItemWidth(150);
-        if (ImGui.SliderInt("Days to keep", ref retentionDays, 7, 365))
-        {
-            plugin.Configuration.HistoryRetentionDays = retentionDays;
-            plugin.ConfigService.Save();
-        }
-
-        if (ImGui.Button("Clean Old History", new Vector2(200, 30)))
-        {
-            plugin.HistoryService.ClearOldHistory(retentionDays);
-            RefreshStatistics();
-        }
-
         ImGui.Spacing();
         ImGui.Spacing();
 
@@ -1320,6 +1369,7 @@ public class StatisticsWindow : Window
         DateTime? start = dateRangeOption == 3 ? null : statsStartDate;
         DateTime? end = dateRangeOption == 3 ? null : statsEndDate;
         
+        Plugin.Log.Info("Refreshing statistics (expensive operation)");
         cachedStats = plugin.HistoryService.CalculateStatistics(start, end);
         lastStatsUpdate = DateTime.Now;
     }
@@ -1360,10 +1410,20 @@ public class StatisticsWindow : Window
 
     private void DrawItemIcon(uint iconId)
     {
-        var icon = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(iconId)).GetWrapOrDefault();
-        if (icon != null)
+        if (iconId == 0) return;
+        
+        // Check cache first
+        if (!iconCache.TryGetValue(iconId, out var icon))
         {
-            ImGui.Image(icon.Handle, new Vector2(24, 24));
+            // Load icon and cache it
+            icon = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(iconId));
+            iconCache[iconId] = icon;
+        }
+        
+        var wrap = icon?.GetWrapOrDefault();
+        if (wrap != null)
+        {
+            ImGui.Image(wrap.Handle, new Vector2(24, 24));
         }
     }
 

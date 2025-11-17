@@ -5,7 +5,7 @@
     "InternalName": "LootView",
     "AssemblyVersion": "1.2.5.0",
     "Punchline": "Comprehensive loot tracking with statistics and analytics",
-    "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles, window locking, transparency controls, and server info bar integration. NEW: Zone Finder to search and view loot tables for any dungeon, trial, or raid powered by Garland Tools API!",
+    "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles, window locking, transparency controls, and server info bar integration. v1.2.5: Fishing tracking with ilms, major performance fixes, GPL-3.0 license, .NET 9 upgrade.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 13,
     "LoadPriority": 0,
@@ -16,7 +16,7 @@
     "DownloadLinkTesting": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadLinkUpdate": "https://github.com/GitHixy/LootView/releases/latest/download/LootView.zip",
     "DownloadCount": 0,
-    "LastUpdated": "2025-11-03T12:00:00Z",
+    "LastUpdated": "2025-11-17T00:00:00Z",
     "Tags": [
       "loot",
       "tracking",

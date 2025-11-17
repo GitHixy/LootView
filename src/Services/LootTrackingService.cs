@@ -147,7 +147,7 @@ public class LootTrackingService : IDisposable
             {
                 ProcessRollMessage(messageText, message);
             }
-            else if ((messageText.Contains("land a") || messageText.Contains("land an")) && messageText.Contains("ilms!"))
+            else if (messageText.Contains("land ") && messageText.Contains("ilms!"))
             {
                 ProcessFishingMessage(messageText, message);
             }
@@ -234,6 +234,8 @@ public class LootTrackingService : IDisposable
                     
                     isOwnLoot = playerName.Equals(localPlayer.Name.TextValue, StringComparison.OrdinalIgnoreCase);
                     remaining = messageText.Substring(obtainsIndex + " obtains ".Length).Trim();
+                    
+                    Plugin.Log.Debug("Parsed obtain message: PlayerName={PlayerName}, Remaining={Remaining}", playerName, remaining);
                 }
                 else
                 {
@@ -241,6 +243,8 @@ public class LootTrackingService : IDisposable
                     playerName = localPlayer.Name.TextValue;
                     isOwnLoot = true;
                     remaining = messageText.Replace("You obtain ", "").Trim();
+                    
+                    Plugin.Log.Debug("Fallback obtain parsing: Remaining={Remaining}", remaining);
                 }
             }
             
@@ -282,7 +286,8 @@ public class LootTrackingService : IDisposable
                     var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
                                            "bottles of ", "bottle of ", "pieces of ", "piece of ",
                                            "phials of ", "phial of ", "stalks of ", "stalk of ",
-                                           "sets of ", "set of ", "bundles of ", "bundle of " };
+                                           "sets of ", "set of ", "bundles of ", "bundle of ",
+                                           "pots of ", "pot of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -340,9 +345,22 @@ public class LootTrackingService : IDisposable
                 quantity = 1;
                 itemName = remaining.Substring(remaining.IndexOf(' ') + 1).TrimEnd('.', ' ');
             }
+            else if (remaining.StartsWith("the "))
+            {
+                // "the item" - keep "the" as it's part of the item name
+                quantity = 1;
+                itemName = remaining.TrimEnd('.', ' ');
+            }
             else
             {
                 itemName = remaining.TrimEnd('.', ' ');
+            }
+            
+            // Ensure itemName is not null before processing
+            if (string.IsNullOrEmpty(itemName))
+            {
+                Plugin.Log.Error("Item name is null or empty after parsing. Message: {Message}", messageText);
+                return;
             }
             
             // Remove HQ suffix if present
@@ -702,41 +720,83 @@ public class LootTrackingService : IDisposable
                 Plugin.Log.Warning($"Attempting to parse item name from text...");
                 
                 // Fallback: try to parse the item name from the message text
-                // Format: "You land a [item name] measuring X.X ilms!" or "You land an [item name] measuring X.X ilms!"
-                var landIndex = messageText.IndexOf("land a ");
-                var landOffset = 7; // length of "land a "
+                // Formats: 
+                // - "You land a [item name] measuring X.X ilms!"
+                // - "You land an [item name] measuring X.X ilms!"
+                // - "You land [quantity] [item name] measuring X.X ilms!"
                 
+                var landIndex = messageText.IndexOf("You land ");
                 if (landIndex < 0)
                 {
-                    landIndex = messageText.IndexOf("land an ");
-                    landOffset = 8; // length of "land an "
+                    Plugin.Log.Warning($"Could not find 'You land' in fishing message");
+                    return;
                 }
                 
+                var afterLand = messageText.Substring(landIndex + 9).Trim(); // After "You land "
                 var measuringIndex = messageText.IndexOf(" measuring ");
-                if (landIndex >= 0 && measuringIndex > landIndex)
+                
+                if (measuringIndex < 0)
                 {
-                    var extractedName = messageText.Substring(landIndex + landOffset, measuringIndex - (landIndex + landOffset)).Trim();
-                    Plugin.Log.Info($"Extracted item name from text: {extractedName}");
-                    
-                    // Try to find item ID from Lumina
-                    var itemData = FindItemByName(extractedName);
-                    if (itemData.HasValue)
+                    Plugin.Log.Warning($"Could not find ' measuring ' in fishing message");
+                    return;
+                }
+                
+                // Extract the part between "You land " and " measuring "
+                var itemPart = messageText.Substring(landIndex + 9, measuringIndex - (landIndex + 9)).Trim();
+                
+                // Check if it starts with "a " or "an " or "a bouquet of " or a number
+                string extractedName;
+                if (itemPart.StartsWith("a bouquet of "))
+                {
+                    extractedName = itemPart.Substring(13).Trim(); // Remove "a bouquet of "
+                }
+                else if (itemPart.StartsWith("a "))
+                {
+                    extractedName = itemPart.Substring(2).Trim();
+                }
+                else if (itemPart.StartsWith("an "))
+                {
+                    extractedName = itemPart.Substring(3).Trim();
+                }
+                else if (char.IsDigit(itemPart[0]))
+                {
+                    // Format: "N itemname" - skip the quantity number
+                    var spaceIdx = itemPart.IndexOf(' ');
+                    if (spaceIdx > 0)
                     {
-                        itemIdFromPayload = itemData.Value.ItemId;
-                        itemNameFromPayload = itemData.Value.Name;
-                        iconIdFromPayload = itemData.Value.IconId;
-                        rarityFromPayload = itemData.Value.Rarity;
-                        Plugin.Log.Info($"Found item in Lumina: ID={itemIdFromPayload}, Name={itemNameFromPayload}, Icon={iconIdFromPayload}");
+                        extractedName = itemPart.Substring(spaceIdx + 1).Trim();
                     }
                     else
                     {
-                        Plugin.Log.Warning($"Could not find item in Lumina for: {extractedName}");
-                        return;
+                        extractedName = itemPart;
                     }
                 }
                 else
                 {
-                    Plugin.Log.Warning($"Could not parse item name from fishing message");
+                    extractedName = itemPart;
+                }
+                
+                // Clean up multiple spaces and trim
+                extractedName = System.Text.RegularExpressions.Regex.Replace(extractedName, @"\s+", " ").Trim();
+                
+                // Apply additional cleaning
+                extractedName = CleanItemName(extractedName);
+                
+                Plugin.Log.Info($"Extracted item name from text: {extractedName}");
+                
+                // Try to find item ID from Lumina
+                var itemData = FindItemByName(extractedName);
+                if (itemData.HasValue)
+                {
+                    itemIdFromPayload = itemData.Value.ItemId;
+                    itemNameFromPayload = itemData.Value.Name;
+                    iconIdFromPayload = itemData.Value.IconId;
+                    rarityFromPayload = itemData.Value.Rarity;
+                    Plugin.Log.Info($"Found item in Lumina: ID={itemIdFromPayload}, Name={itemNameFromPayload}, Icon={iconIdFromPayload}");
+                }
+                else
+                {
+                    Plugin.Log.Warning($"Could not find item in Lumina for: {extractedName}");
                     return;
                 }
             }
@@ -918,7 +978,8 @@ public class LootTrackingService : IDisposable
             "handfuls of ", "handful of ",
             "portions of ", "portion of ",
             "sets of ", "set of ",
-            "bundles of ", "bundle of "
+            "bundles of ", "bundle of ",
+            "pots of ", "pot of "
         };
         
         foreach (var prefix in unitPrefixes)

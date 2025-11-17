@@ -4,7 +4,7 @@
   "Punchline": "Comprehensive loot tracking with statistics and analytics",
   "InternalName": "LootView",
   "AssemblyVersion": "1.2.5.0",
-  "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles and transparency. Now with Zone Finder and duty loot tables powered by Garland Tools API!",
+  "Description": "Track all your loot with detailed statistics, duty tracking, history browser, trends analysis, and data export. Features modern UI with customizable styles and transparency. NEW in 1.2.5: Fishing loot tracking with ilms measurement, performance optimizations (fixed FPS drops), GPL-3.0 license, event cleanup fixes, .NET 9 upgrade.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,
   "LoadPriority": 0,

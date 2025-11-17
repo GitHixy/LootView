@@ -18,6 +18,11 @@ public class HistoryService : IDisposable
     private readonly object historyLock = new();
     private DateTime lastSave = DateTime.MinValue;
     private bool isDirty = false;
+    
+    // Statistics cache
+    private LootStatistics cachedAllTimeStats = null;
+    private DateTime lastAllTimeStatsUpdate = DateTime.MinValue;
+    private int lastHistoryCount = 0;
 
     public HistoryService(ConfigurationService configService)
     {
@@ -48,6 +53,8 @@ public class HistoryService : IDisposable
     {
         lock (historyLock)
         {
+            // Invalidate cached stats when new items are added
+            cachedAllTimeStats = null;
             // Add to full history
             history.AllItems.Add(item);
             history.LastUpdated = DateTime.Now;
@@ -123,6 +130,16 @@ public class HistoryService : IDisposable
     {
         lock (historyLock)
         {
+            // Use cached "All Time" stats if available and no date filters
+            if (!startDate.HasValue && !endDate.HasValue)
+            {
+                if (cachedAllTimeStats != null && history.AllItems.Count == lastHistoryCount)
+                {
+                    Plugin.Log.Debug("Using cached all-time statistics");
+                    return cachedAllTimeStats;
+                }
+            }
+            
             var items = history.AllItems.AsEnumerable();
 
             // Apply date filters
@@ -236,6 +253,15 @@ public class HistoryService : IDisposable
 
             // Streaks
             CalculateStreaks(stats);
+
+            // Cache the all-time stats
+            if (!startDate.HasValue && !endDate.HasValue)
+            {
+                cachedAllTimeStats = stats;
+                lastHistoryCount = history.AllItems.Count;
+                lastAllTimeStatsUpdate = DateTime.Now;
+                Plugin.Log.Debug("Cached all-time statistics ({Count} items)", history.AllItems.Count);
+            }
 
             return stats;
         }
