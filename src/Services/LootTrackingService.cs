@@ -151,7 +151,7 @@ public class LootTrackingService : IDisposable
             {
                 ProcessFishingMessage(messageText, message);
             }
-            else if (messageText.Contains("You obtain") || messageText.Contains(" obtains "))
+            else if (messageText.Contains("You obtain") || messageText.Contains(" obtains ") || messageText.Contains("You synthesize"))
             {
                 ProcessObtainMessage(messageText, message);
             }
@@ -202,6 +202,7 @@ public class LootTrackingService : IDisposable
 
             // Parse loot messages:
             // - "You obtain X ItemName" (your loot)
+            // - "You synthesize X ItemName" (crafting)
             // - "PlayerName obtains X ItemName" (party member loot)
             
             string itemName = itemNameFromPayload;
@@ -218,6 +219,13 @@ public class LootTrackingService : IDisposable
                 playerName = localPlayer.Name.TextValue;
                 isOwnLoot = true;
                 remaining = messageText.Replace("You obtain ", "").Trim();
+            }
+            else if (messageText.StartsWith("You synthesize "))
+            {
+                // Crafting output
+                playerName = localPlayer.Name.TextValue;
+                isOwnLoot = true;
+                remaining = messageText.Replace("You synthesize ", "").Trim();
             }
             else
             {
@@ -287,7 +295,9 @@ public class LootTrackingService : IDisposable
                                            "bottles of ", "bottle of ", "pieces of ", "piece of ",
                                            "phials of ", "phial of ", "stalks of ", "stalk of ",
                                            "sets of ", "set of ", "bundles of ", "bundle of ",
-                                           "pots of ", "pot of " };
+                                           "pots of ", "pot of ", "coils of ", "coil of ",
+                                           "planks of ", "plank of ", "lengths of ", "length of ",
+                                           "stacks of ", "stack of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -307,7 +317,7 @@ public class LootTrackingService : IDisposable
                     var rest = parts[1];
                     
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of " };
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -325,7 +335,11 @@ public class LootTrackingService : IDisposable
                          quantityPart.Equals("bottles", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("pieces", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("phials", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("stalks", StringComparison.OrdinalIgnoreCase))
+                         quantityPart.Equals("stalks", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("coils", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("planks", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("lengths", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("stacks", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1; // Default to 1 if no number specified
                     var rest = parts[1];
@@ -339,21 +353,46 @@ public class LootTrackingService : IDisposable
                     itemName = rest.TrimEnd('.', ' ');
                 }
             }
-            else if (remaining.StartsWith("a ") || remaining.StartsWith("an "))
+            
+            // If no quantity found yet, check for article + item name formats
+            if (itemName == null && parts.Length >= 2)
             {
-                // "a potion" or "an item"
-                quantity = 1;
-                itemName = remaining.Substring(remaining.IndexOf(' ') + 1).TrimEnd('.', ' ');
+                string firstWord = parts[0];
+                
+                // Handle "a ItemName" / "an ItemName"
+                if (firstWord.Equals("a", StringComparison.OrdinalIgnoreCase) || 
+                    firstWord.Equals("an", StringComparison.OrdinalIgnoreCase))
+                {
+                    quantity = 1;
+                    itemName = parts[1].TrimEnd('.', ' ');
+                }
+                // Handle "the ItemName"
+                else if (firstWord.Equals("the", StringComparison.OrdinalIgnoreCase))
+                {
+                    quantity = 1;
+                    itemName = "the " + parts[1].TrimEnd('.', ' '); // Keep "the" in item name
+                }
             }
-            else if (remaining.StartsWith("the "))
+            
+            // Fallback: if still no item name found
+            if (itemName == null)
             {
-                // "the item" - keep "the" as it's part of the item name
-                quantity = 1;
-                itemName = remaining.TrimEnd('.', ' ');
-            }
-            else
-            {
-                itemName = remaining.TrimEnd('.', ' ');
+                if (remaining.StartsWith("a ") || remaining.StartsWith("an "))
+                {
+                    // "a potion" or "an item"
+                    quantity = 1;
+                    itemName = remaining.Substring(remaining.IndexOf(' ') + 1).TrimEnd('.', ' ');
+                }
+                else if (remaining.StartsWith("the "))
+                {
+                    // "the item" - keep "the" as it's part of the item name
+                    quantity = 1;
+                    itemName = remaining.TrimEnd('.', ' ');
+                }
+                else
+                {
+                    itemName = remaining.TrimEnd('.', ' ');
+                }
             }
             
             // Ensure itemName is not null before processing
@@ -371,6 +410,13 @@ public class LootTrackingService : IDisposable
             
             // Remove surrounding quotes if present (from some chat formats)
             itemName = itemName.Trim('"', '\'', ' ');
+            
+            // Normalize plural unit words to singular for item names
+            // E.g., "sacks of Nuts" -> "sack of Nuts"
+            if (itemName.StartsWith("sacks of ", StringComparison.OrdinalIgnoreCase))
+            {
+                itemName = "sack of " + itemName.Substring(9);
+            }
             
             // If we have item ID from payload, use it directly; otherwise try to find by name
             (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
@@ -620,6 +666,13 @@ public class LootTrackingService : IDisposable
             
             // Remove surrounding quotes if present (from some chat formats)
             itemName = itemName.Trim('"', '\'', ' ');
+            
+            // Normalize plural unit words to singular for item names
+            // E.g., "sacks of Nuts" -> "sack of Nuts"
+            if (itemName.StartsWith("sacks of ", StringComparison.OrdinalIgnoreCase))
+            {
+                itemName = "sack of " + itemName.Substring(9);
+            }
             
             // If we have item ID from payload, use it directly; otherwise try to find by name
             (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
