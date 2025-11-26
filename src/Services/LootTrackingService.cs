@@ -297,7 +297,7 @@ public class LootTrackingService : IDisposable
                                            "sets of ", "set of ", "bundles of ", "bundle of ",
                                            "pots of ", "pot of ", "coils of ", "coil of ",
                                            "planks of ", "plank of ", "lengths of ", "length of ",
-                                           "stacks of ", "stack of " };
+                                           "stacks of ", "stack of ", "bolts of ", "bolt of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -317,7 +317,7 @@ public class LootTrackingService : IDisposable
                     var rest = parts[1];
                     
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of " };
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of ", "bolt of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -339,7 +339,8 @@ public class LootTrackingService : IDisposable
                          quantityPart.Equals("coils", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("planks", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("lengths", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("stacks", StringComparison.OrdinalIgnoreCase))
+                         quantityPart.Equals("stacks", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("bolts", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1; // Default to 1 if no number specified
                     var rest = parts[1];
