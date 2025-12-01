@@ -22,6 +22,10 @@ public class LootTrackingService : IDisposable
     // Roll tracking - use a list to allow multiple drops of the same item
     private readonly List<RollInfo> activeRolls = new();
     private readonly object rollLock = new();
+    
+    // Deduplication tracking - prevent same item from being added twice within a short time window
+    private readonly Dictionary<string, DateTime> recentlyAddedItems = new();
+    private readonly object deduplicationLock = new();
 
     public IReadOnlyList<LootItem> LootHistory
     {
@@ -158,6 +162,10 @@ public class LootTrackingService : IDisposable
             else if (messageText.Contains(" are obtained") || messageText.Contains(" is obtained"))
             {
                 ProcessPassiveObtainMessage(messageText, message);
+            }
+            else if (messageText.Contains(" is added to your inventory"))
+            {
+                ProcessInventoryAddMessage(messageText, message);
             }
             else if (messageText.Contains("successfully extract"))
             {
@@ -297,7 +305,8 @@ public class LootTrackingService : IDisposable
                                            "sets of ", "set of ", "bundles of ", "bundle of ",
                                            "pots of ", "pot of ", "coils of ", "coil of ",
                                            "planks of ", "plank of ", "lengths of ", "length of ",
-                                           "stacks of ", "stack of ", "bolts of ", "bolt of " };
+                                           "stacks of ", "stack of ", "bolts of ", "bolt of ",
+                                           "loops of ", "loop of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -317,7 +326,7 @@ public class LootTrackingService : IDisposable
                     var rest = parts[1];
                     
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of ", "bolt of " };
+                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of ", "bolt of ", "loop of " };
                     foreach (var unit in unitWords)
                     {
                         if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
@@ -340,7 +349,8 @@ public class LootTrackingService : IDisposable
                          quantityPart.Equals("planks", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("lengths", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("stacks", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("bolts", StringComparison.OrdinalIgnoreCase))
+                         quantityPart.Equals("bolts", StringComparison.OrdinalIgnoreCase) ||
+                         quantityPart.Equals("loops", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1; // Default to 1 if no number specified
                     var rest = parts[1];
@@ -729,6 +739,117 @@ public class LootTrackingService : IDisposable
         }
     }
 
+    private void ProcessInventoryAddMessage(string messageText, SeString message)
+    {
+        // Handle "The ItemName is added to your inventory" or "ItemName is added to your inventory"
+        // Example: "The afflatus spinning wheel is added to your inventory."
+        try
+        {
+            var localPlayer = Plugin.ClientState.LocalPlayer;
+            if (localPlayer == null) return;
+
+            // Try to extract item ID from SeString payload (for linked items)
+            uint? itemIdFromPayload = null;
+            string itemNameFromPayload = null;
+            
+            foreach (var payload in message.Payloads)
+            {
+                if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
+                {
+                    itemIdFromPayload = itemPayload.ItemId;
+                    itemNameFromPayload = itemPayload.DisplayName;
+                    Plugin.Log.Debug("Found item payload: ID={ItemId}, Name={Name}", itemPayload.ItemId, itemPayload.DisplayName);
+                    break;
+                }
+            }
+
+            string itemName = itemNameFromPayload;
+            uint quantity = 1; // Inventory add messages don't specify quantity, assume 1
+            bool isHQ = messageText.Contains(" HQ");
+            
+            // Remove " is added to your inventory." or " is added to your inventory" from the end
+            string remaining = messageText;
+            if (remaining.EndsWith(" is added to your inventory.", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " is added to your inventory.".Length).Trim();
+            }
+            else if (remaining.EndsWith(" is added to your inventory", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(0, remaining.Length - " is added to your inventory".Length).Trim();
+            }
+            
+            // Remove "The " or "the " prefix if present
+            if (remaining.StartsWith("The ", StringComparison.OrdinalIgnoreCase))
+            {
+                remaining = remaining.Substring(4).Trim();
+            }
+            
+            itemName = remaining;
+            
+            // Remove HQ suffix if present
+            if (isHQ)
+            {
+                itemName = itemName.Replace(" HQ", "").Trim();
+            }
+            
+            // Remove surrounding quotes if present (from some chat formats)
+            itemName = itemName.Trim('"', '\'', ' ');
+            
+            // If we have item ID from payload, use it directly; otherwise try to find by name
+            (uint ItemId, uint IconId, uint Rarity, string Name)? itemData = null;
+            
+            if (itemIdFromPayload.HasValue)
+            {
+                itemData = GetItemDataById(itemIdFromPayload.Value);
+                if (itemData.HasValue)
+                {
+                    itemName = itemData.Value.Name;
+                }
+            }
+            else
+            {
+                // No payload, clean and search by name
+                itemName = CleanItemName(itemName);
+                itemData = FindItemByName(itemName);
+                
+                if (itemData.HasValue)
+                {
+                    Plugin.Log.Info("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                        itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
+                }
+                else
+                {
+                    Plugin.Log.Warning("Item not found by name: '{ItemName}'", itemName);
+                }
+            }
+            
+            var lootItem = new LootItem
+            {
+                ItemName = itemData?.Name ?? itemName,
+                ItemId = itemData?.ItemId ?? 0,
+                IconId = itemData?.IconId ?? 0,
+                Rarity = itemData?.Rarity ?? 1,
+                Quantity = quantity,
+                IsHQ = isHQ,
+                PlayerName = localPlayer.Name.TextValue,
+                PlayerContentId = Plugin.ClientState.LocalContentId,
+                IsOwnLoot = true,
+                Source = LootSource.Other,
+                TerritoryType = Plugin.ClientState.TerritoryType,
+                ZoneName = GetCurrentZoneName(),
+                Timestamp = DateTime.Now
+            };
+
+            AddLootItem(lootItem);
+            
+            Plugin.Log.Info($"Loot tracked (inventory add): {lootItem.PlayerName} obtained {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Error processing inventory add message: {Message}", messageText);
+        }
+    }
+
     private void ProcessFishingMessage(string messageText, SeString message)
     {
         try
@@ -1102,6 +1223,40 @@ public class LootTrackingService : IDisposable
                 }
             }
             
+            // Try with/without "The" prefix
+            // Some items may be searched for with "the" but the actual item name doesn't have it (or vice versa)
+            string alternateSearch = searchName;
+            if (searchName.StartsWith("the ", StringComparison.OrdinalIgnoreCase))
+            {
+                // Try without "the " prefix
+                alternateSearch = searchName.Substring(4);
+                Plugin.Log.Info("Trying without 'the' prefix: '{AlternateName}'", alternateSearch);
+                foreach (var item in itemSheet)
+                {
+                    var itemNameStr = item.Name.ExtractText();
+                    if (itemNameStr.Equals(alternateSearch, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Plugin.Log.Info("Found item (without 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        return (item.RowId, item.Icon, item.Rarity, itemNameStr);
+                    }
+                }
+            }
+            else
+            {
+                // Try with "the " prefix
+                alternateSearch = "the " + searchName;
+                Plugin.Log.Info("Trying with 'the' prefix: '{AlternateName}'", alternateSearch);
+                foreach (var item in itemSheet)
+                {
+                    var itemNameStr = item.Name.ExtractText();
+                    if (itemNameStr.Equals(alternateSearch, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Plugin.Log.Info("Found item (with 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        return (item.RowId, item.Icon, item.Rarity, itemNameStr);
+                    }
+                }
+            }
+            
             // Try plural to singular conversions
             var singularForms = new List<string>();
             
@@ -1269,6 +1424,34 @@ public class LootTrackingService : IDisposable
 
     private void AddLootItem(LootItem lootItem)
     {
+        // Deduplication: Check if this exact item was just added (within 2 seconds)
+        // This prevents duplicate entries when multiple chat messages are sent for the same loot
+        var dedupeKey = $"{lootItem.ItemId}_{lootItem.PlayerName}_{lootItem.Quantity}_{lootItem.IsHQ}";
+        
+        lock (deduplicationLock)
+        {
+            // Clean up old entries (older than 5 seconds)
+            var now = DateTime.Now;
+            var expiredKeys = recentlyAddedItems.Where(kvp => (now - kvp.Value).TotalSeconds > 5).Select(kvp => kvp.Key).ToList();
+            foreach (var key in expiredKeys)
+            {
+                recentlyAddedItems.Remove(key);
+            }
+            
+            // Check if this item was just added
+            if (recentlyAddedItems.TryGetValue(dedupeKey, out var lastAddedTime))
+            {
+                if ((now - lastAddedTime).TotalSeconds < 2)
+                {
+                    Plugin.Log.Debug($"Skipping duplicate loot item: {lootItem.ItemName} (added {(now - lastAddedTime).TotalSeconds:F2}s ago)");
+                    return; // Skip this duplicate
+                }
+            }
+            
+            // Record this addition
+            recentlyAddedItems[dedupeKey] = now;
+        }
+        
         lock (lootHistoryLock)
         {
             lootHistory.Insert(0, lootItem); // Add to beginning for newest first
@@ -1377,6 +1560,12 @@ public class LootTrackingService : IDisposable
             if (config.ShowHQOnly)
             {
                 filtered = filtered.Where(l => l.IsHQ);
+            }
+            
+            // Filter by blacklist
+            if (config.BlacklistedItemIds != null && config.BlacklistedItemIds.Count > 0)
+            {
+                filtered = filtered.Where(l => !config.BlacklistedItemIds.Contains(l.ItemId));
             }
 
             // Filter by time if auto-hide is enabled

@@ -59,6 +59,19 @@ public class ConfigWindow : Window
                     ImGui.SetTooltip("Automatically open the loot tracker window when you log into the game");
                 }
                 
+                bool showOnDutyStart = config.ShowOnDutyStart;
+                if (ImGui.Checkbox("Open Window on Duty Start", ref showOnDutyStart))
+                {
+                    config.ShowOnDutyStart = showOnDutyStart;
+                    configService.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip("Automatically open the loot tracker window when entering a duty");
+                }
+                
                 bool showOnlyMyLoot = config.ShowOnlyOwnLoot;
                 if (ImGui.Checkbox("Show Only My Loot", ref showOnlyMyLoot))
                 {

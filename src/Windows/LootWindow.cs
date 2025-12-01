@@ -326,6 +326,49 @@ public class LootWindow : Window
                     
                     ImGui.TableSetColumnIndex(4);
                     ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), FormatTimeAgo(item.Timestamp));
+                    
+                    // Right-click context menu for blacklist management
+                    // Check if user right-clicked anywhere in this row
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right) || 
+                        (ImGui.TableGetColumnIndex() >= 0 && ImGui.IsMouseClicked(ImGuiMouseButton.Right) && ImGui.IsWindowHovered()))
+                    {
+                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                    }
+                    
+                    if (ImGui.BeginPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
+                    {
+                        var config = plugin.ConfigService.Configuration;
+                        bool isBlacklisted = config.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
+                        
+                        if (isBlacklisted)
+                        {
+                            if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
+                            {
+                                if (config.BlacklistedItemIds != null)
+                                {
+                                    config.BlacklistedItemIds.Remove(item.ItemId);
+                                    plugin.ConfigService.Save();
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
+                            {
+                                if (config.BlacklistedItemIds == null)
+                                {
+                                    config.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
+                                }
+                                if (!config.BlacklistedItemIds.Contains(item.ItemId))
+                                {
+                                    config.BlacklistedItemIds.Add(item.ItemId);
+                                    plugin.ConfigService.Save();
+                                }
+                            }
+                        }
+                        
+                        ImGui.EndPopup();
+                    }
                 }
                 
                 ImGui.EndTable();
@@ -397,6 +440,50 @@ public class LootWindow : Window
                     ImGui.PushStyleColor(ImGuiCol.PlotHistogram, new Vector4(0.3f, 0.7f, 1.0f, 0.6f));
                     ImGui.ProgressBar((float)freshness, new Vector2(45, 3), "");
                     ImGui.PopStyleColor();
+                }
+                
+                // Right-click context menu for blacklist management
+                var itemRect = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeight());
+                ImGui.InvisibleButton($"##CompactItemRow_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, 0));
+                
+                if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                {
+                    ImGui.OpenPopup($"##CompactContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                }
+                
+                if (ImGui.BeginPopup($"##CompactContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
+                {
+                    var configInner = plugin.ConfigService.Configuration;
+                    bool isBlacklisted = configInner.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
+                    
+                    if (isBlacklisted)
+                    {
+                        if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
+                        {
+                            if (configInner.BlacklistedItemIds != null)
+                            {
+                                configInner.BlacklistedItemIds.Remove(item.ItemId);
+                                plugin.ConfigService.Save();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
+                        {
+                            if (configInner.BlacklistedItemIds == null)
+                            {
+                                configInner.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
+                            }
+                            if (!configInner.BlacklistedItemIds.Contains(item.ItemId))
+                            {
+                                configInner.BlacklistedItemIds.Add(item.ItemId);
+                                plugin.ConfigService.Save();
+                            }
+                        }
+                    }
+                    
+                    ImGui.EndPopup();
                 }
             }
             ImGui.EndChild();
@@ -493,9 +580,51 @@ public class LootWindow : Window
                     
                     ImGui.TextColored(new Vector4(0.0f, 0.9f, 0.9f, 1.0f), $"[{item.Quantity}x] {item.PlayerName} // {FormatTimeAgo(item.Timestamp)}");
                     ImGui.EndGroup();
-                    
-                    ImGui.EndChild();
                 }
+                ImGui.EndChild();
+                
+                // Right-click context menu for blacklist management
+                // Check if the child window was right-clicked
+                if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                {
+                    ImGui.OpenPopup($"##NeonItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                }
+                
+                if (ImGui.BeginPopup($"##NeonItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
+                {
+                    var configInner = plugin.ConfigService.Configuration;
+                    bool isBlacklisted = configInner.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
+                    
+                    if (isBlacklisted)
+                    {
+                        if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
+                        {
+                            if (configInner.BlacklistedItemIds != null)
+                            {
+                                configInner.BlacklistedItemIds.Remove(item.ItemId);
+                                plugin.ConfigService.Save();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
+                        {
+                            if (configInner.BlacklistedItemIds == null)
+                            {
+                                configInner.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
+                            }
+                            if (!configInner.BlacklistedItemIds.Contains(item.ItemId))
+                            {
+                                configInner.BlacklistedItemIds.Add(item.ItemId);
+                                plugin.ConfigService.Save();
+                            }
+                        }
+                    }
+                    
+                    ImGui.EndPopup();
+                }
+                
                 ImGui.PopStyleVar();
                 ImGui.PopStyleColor(2);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 4);

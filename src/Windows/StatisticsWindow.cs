@@ -169,6 +169,18 @@ public class StatisticsWindow : Window
                 ImGui.EndTabItem();
             }
 
+            // Blacklist Tab
+            var blacklistOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Ban.ToIconString()} Blacklist##BlacklistTab");
+            if (blacklistOpen)
+            {
+                if (ImGui.BeginChild("BlacklistContent", new Vector2(0, 0), false))
+                {
+                    DrawBlacklistTab();
+                    ImGui.EndChild();
+                }
+                ImGui.EndTabItem();
+            }
+
             // Export Tab
             var exportOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Download.ToIconString()} Export##ExportTab");
             if (exportOpen)
@@ -1259,6 +1271,158 @@ public class StatisticsWindow : Window
 
             ImGui.EndTabBar();
         }
+    }
+
+    private void DrawBlacklistTab()
+    {
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.5f, 1.0f), "Blacklisted Items");
+        ImGui.Spacing();
+
+        var config = plugin.ConfigService.Configuration;
+        var blacklistedIds = config.BlacklistedItemIds ?? new List<uint>();
+
+        if (blacklistedIds.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "No items in blacklist.");
+            ImGui.Spacing();
+            ImGui.TextWrapped("Right-click any item in the Loot Window and select 'Add to Blacklist' to hide items you don't want to track.");
+            return;
+        }
+
+        ImGui.Text($"Total blacklisted items: {blacklistedIds.Count}");
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Clear all button
+        if (ImGui.Button("Clear All Blacklist", new Vector2(150, 30)))
+        {
+            ImGui.OpenPopup("ConfirmClearBlacklist");
+        }
+
+        if (ImGui.BeginPopupModal("ConfirmClearBlacklist", ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGui.Text("Are you sure you want to remove all items from the blacklist?");
+            ImGui.Spacing();
+            
+            if (ImGui.Button("Yes, Clear All", new Vector2(120, 0)))
+            {
+                config.BlacklistedItemIds?.Clear();
+                plugin.ConfigService.Save();
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel", new Vector2(120, 0)))
+            {
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndPopup();
+        }
+
+        ImGui.Spacing();
+
+        // Display blacklisted items in a table
+        if (ImGui.BeginTable("BlacklistTable", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY))
+        {
+            ImGui.TableSetupColumn("Icon", ImGuiTableColumnFlags.WidthFixed, 40);
+            ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Item ID", ImGuiTableColumnFlags.WidthFixed, 80);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupScrollFreeze(0, 1);
+            ImGui.TableHeadersRow();
+
+            var itemsToRemove = new List<uint>();
+
+            foreach (var itemId in blacklistedIds.ToList())
+            {
+                var itemRow = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>()?.GetRow(itemId);
+                
+                ImGui.TableNextRow();
+                
+                // Icon column
+                ImGui.TableSetColumnIndex(0);
+                if (itemRow.HasValue)
+                {
+                    var item = itemRow.Value;
+                    var icon = item.Icon;
+                    if (icon > 0)
+                    {
+                        if (!iconCache.TryGetValue(icon, out var texture))
+                        {
+                            texture = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon));
+                            if (texture != null)
+                            {
+                                iconCache[icon] = texture;
+                            }
+                        }
+
+                        if (texture != null)
+                        {
+                            var wrap = texture.GetWrapOrDefault();
+                            if (wrap != null)
+                            {
+                                ImGui.Image(wrap.Handle, new Vector2(32, 32));
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui.Text("?");
+                }
+
+                // Item name column
+                ImGui.TableSetColumnIndex(1);
+                if (itemRow.HasValue)
+                {
+                    var item = itemRow.Value;
+                    var rarityColor = GetRarityColorForItem(item.Rarity);
+                    ImGui.TextColored(rarityColor, item.Name.ExtractText());
+                }
+                else
+                {
+                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Unknown Item");
+                }
+
+                // Item ID column
+                ImGui.TableSetColumnIndex(2);
+                ImGui.Text(itemId.ToString());
+
+                // Actions column
+                ImGui.TableSetColumnIndex(3);
+                if (ImGui.Button($"Remove##Remove_{itemId}", new Vector2(90, 0)))
+                {
+                    itemsToRemove.Add(itemId);
+                }
+            }
+
+            // Remove items after iteration
+            foreach (var itemId in itemsToRemove)
+            {
+                config.BlacklistedItemIds?.Remove(itemId);
+            }
+            
+            if (itemsToRemove.Count > 0)
+            {
+                plugin.ConfigService.Save();
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private Vector4 GetRarityColorForItem(byte rarity)
+    {
+        return rarity switch
+        {
+            1 => new Vector4(1.0f, 1.0f, 1.0f, 1.0f),      // Common (white)
+            2 => new Vector4(0.2f, 1.0f, 0.2f, 1.0f),      // Uncommon (green)
+            3 => new Vector4(0.3f, 0.5f, 1.0f, 1.0f),      // Rare (blue)
+            4 => new Vector4(0.8f, 0.3f, 1.0f, 1.0f),      // Epic (purple)
+            7 => new Vector4(1.0f, 0.8f, 0.4f, 1.0f),      // Relic (gold)
+            _ => new Vector4(0.7f, 0.7f, 0.7f, 1.0f)       // Default (gray)
+        };
     }
 
     private void DrawExportTab()

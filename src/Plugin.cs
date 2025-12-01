@@ -321,6 +321,12 @@ public sealed class Plugin : IDalamudPlugin
                     currentDuty.Value.ClassJobLevelRequired,
                     currentDuty.Value.ItemLevelRequired
                 );
+                
+                // Auto-show loot window if configured
+                if (ConfigService.Configuration.ShowOnDutyStart)
+                {
+                    LootWindow.IsOpen = true;
+                }
             }
             else
             {

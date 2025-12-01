@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace LootView.Models;
 
@@ -13,6 +14,7 @@ public class Configuration
     // Window Settings
     public bool IsVisible { get; set; } = false;
     public bool OpenOnLogin { get; set; } = false;
+    public bool ShowOnDutyStart { get; set; } = false;
     public bool ShowOnlyOwnLoot { get; set; } = false;
     public bool ShowOnlyMyLoot { get; set; } = false; // Alias for ShowOnlyOwnLoot for UI consistency
     public bool ShowItemIcons { get; set; } = true;
@@ -56,6 +58,9 @@ public class Configuration
     public bool EnableHistoryAutoSave { get; set; } = true;
     public int HistoryRetentionDays { get; set; } = 90; // Keep history for 90 days by default
     public bool SaveToHistoryOnClear { get; set; } = true; // Save items to history when clearing the list
+
+    // Blacklist
+    public List<uint> BlacklistedItemIds { get; set; } = new List<uint>(); // Item IDs to not display in LootWindow
 
     // Colors (stored as packed RGBA values)
     public uint OwnLootColor { get; set; } = 0xFF00FF00; // Green
