@@ -1424,26 +1424,28 @@ public class LootTrackingService : IDisposable
 
     private void AddLootItem(LootItem lootItem)
     {
-        // Deduplication: Check if this exact item was just added (within 2 seconds)
-        // This prevents duplicate entries when multiple chat messages are sent for the same loot
+        // Deduplication: Only prevent duplicates from the SAME event (within 500ms)
+        // This catches cases where "You obtain X" and "X is added to your inventory" 
+        // fire for the same loot, but allows multiple exchanges/transactions
         var dedupeKey = $"{lootItem.ItemId}_{lootItem.PlayerName}_{lootItem.Quantity}_{lootItem.IsHQ}";
         
         lock (deduplicationLock)
         {
-            // Clean up old entries (older than 5 seconds)
+            // Clean up old entries (older than 3 seconds)
             var now = DateTime.Now;
-            var expiredKeys = recentlyAddedItems.Where(kvp => (now - kvp.Value).TotalSeconds > 5).Select(kvp => kvp.Key).ToList();
+            var expiredKeys = recentlyAddedItems.Where(kvp => (now - kvp.Value).TotalSeconds > 3).Select(kvp => kvp.Key).ToList();
             foreach (var key in expiredKeys)
             {
                 recentlyAddedItems.Remove(key);
             }
             
-            // Check if this item was just added
+            // Check if this item was just added (within 500ms = same event)
             if (recentlyAddedItems.TryGetValue(dedupeKey, out var lastAddedTime))
             {
-                if ((now - lastAddedTime).TotalSeconds < 2)
+                var timeSinceLastAdd = (now - lastAddedTime).TotalMilliseconds;
+                if (timeSinceLastAdd < 500) // Same event if under 500ms
                 {
-                    Plugin.Log.Debug($"Skipping duplicate loot item: {lootItem.ItemName} (added {(now - lastAddedTime).TotalSeconds:F2}s ago)");
+                    Plugin.Log.Debug($"Skipping duplicate loot item: {lootItem.ItemName} (added {timeSinceLastAdd:F0}ms ago - same event)");
                     return; // Skip this duplicate
                 }
             }
