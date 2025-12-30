@@ -302,6 +302,12 @@ public class LootWindow : Window
                         ShowItemTooltip(item);
                     }
                     
+                    // Check for right-click on icon
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                    {
+                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                    }
+                    
                     ImGui.TableSetColumnIndex(1);
                     var nameColor = GetRarityColor(item.Rarity);
                     ImGui.TextColored(nameColor, ToTitleCase(item.ItemName));
@@ -317,24 +323,41 @@ public class LootWindow : Window
                         ShowItemTooltip(item);
                     }
                     
+                    // Check for right-click on name
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                    {
+                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                    }
+                    
                     ImGui.TableSetColumnIndex(2);
                     ImGui.Text($"x{item.Quantity}");
+                    
+                    // Check for right-click on quantity
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                    {
+                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                    }
                     
                     ImGui.TableSetColumnIndex(3);
                     var playerColor = item.IsOwnLoot ? new Vector4(0.2f, 1.0f, 0.2f, 1.0f) : new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                     ImGui.TextColored(playerColor, item.PlayerName);
                     
-                    ImGui.TableSetColumnIndex(4);
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), FormatTimeAgo(item.Timestamp));
-                    
-                    // Right-click context menu for blacklist management
-                    // Check if user right-clicked anywhere in this row
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right) || 
-                        (ImGui.TableGetColumnIndex() >= 0 && ImGui.IsMouseClicked(ImGuiMouseButton.Right) && ImGui.IsWindowHovered()))
+                    // Check for right-click on player name
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
                     {
                         ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
                     }
                     
+                    ImGui.TableSetColumnIndex(4);
+                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), FormatTimeAgo(item.Timestamp));
+                    
+                    // Check for right-click on time
+                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                    {
+                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
+                    }
+                    
+                    // Right-click context menu for blacklist management
                     if (ImGui.BeginPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
                     {
                         var config = plugin.ConfigService.Configuration;
@@ -443,8 +466,9 @@ public class LootWindow : Window
                 }
                 
                 // Right-click context menu for blacklist management
-                var itemRect = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeight());
-                ImGui.InvisibleButton($"##CompactItemRow_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, 0));
+                // Add invisible button covering the item row to detect right-clicks
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetTextLineHeightWithSpacing());
+                ImGui.InvisibleButton($"##CompactItemRow_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeightWithSpacing()));
                 
                 if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
                 {
