@@ -46,6 +46,7 @@ public class Configuration
     public bool TrackAllPartyLoot { get; set; } = true;
     public bool TrackGatheringLoot { get; set; } = true;
     public bool TrackCraftingLoot { get; set; } = false;
+    public bool EnableRollTracking { get; set; } = true;
     public bool ShowDtrBar { get; set; } = true; // Show button in server info bar
 
     // Visual Effects

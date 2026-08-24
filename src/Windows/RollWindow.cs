@@ -126,7 +126,7 @@ public class RollWindow : Window
             ImGui.Separator();
             ImGui.Spacing();
 
-            var localPlayerName = Plugin.ClientState.LocalPlayer?.Name.TextValue ?? "You";
+            var localPlayerName = Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "You";
 
             // Show each active roll session
             foreach (var rollInfo in activeRolls)

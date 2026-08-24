@@ -112,6 +112,24 @@ public class ConfigWindow : Window
                     config.TrackAllPartyLoot = trackPartyLoot;
                     configService.Save();
                 }
+
+                bool enableRollTracking = config.EnableRollTracking;
+                if (ImGui.Checkbox("Enable Loot Roll Window", ref enableRollTracking))
+                {
+                    config.EnableRollTracking = enableRollTracking;
+                    configService.Save();
+
+                    if (!enableRollTracking)
+                    {
+                        plugin.LootTracker.ClearAllRolls();
+                    }
+                }
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip("Show the Need/Greed roll popup and track roll results\nDisable if you don't want the roll window appearing during loot rolls");
+                }
             }
             
             // Visual Effects Settings

@@ -130,7 +130,7 @@ public class LootTableService : IDisposable
     {
         try
         {
-            var territoryId = Plugin.ClientState.TerritoryType;
+            var territoryId = (ushort)Plugin.ClientState.TerritoryType;
             if (territoryId == 0)
             {
                 Plugin.Log.Debug("Not in a valid territory");

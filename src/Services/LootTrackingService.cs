@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Plugin.Services;
@@ -113,10 +114,12 @@ public class LootTrackingService : IDisposable
         }
     }
 
-    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    private void OnChatMessage(IHandleableChatMessage chatMessage)
     {
         try
         {
+            var type = chatMessage.LogKind;
+            var message = chatMessage.Message;
             var messageText = message.TextValue;
             
             // Log for debugging what messages we see
@@ -142,11 +145,12 @@ public class LootTrackingService : IDisposable
             // - "PlayerName rolls Need/Greed on the ItemName. XX!" (party roll tracking)
             // - "A ItemName has been added to the loot list." (roll started)
             // - "You land a ItemName measuring N ilms!" (fishing)
-            if (messageText.Contains("has been added to the loot list"))
+            if (configService.Configuration.EnableRollTracking && messageText.Contains("has been added to the loot list"))
             {
                 ProcessLootListAddedMessage(messageText, message);
             }
-            else if ((messageText.Contains(" roll") || messageText.Contains(" rolls ")) && 
+            else if (configService.Configuration.EnableRollTracking &&
+                (messageText.Contains(" roll") || messageText.Contains(" rolls ")) &&
                 (messageText.Contains(" Need ") || messageText.Contains(" Greed ") || messageText.Contains("Need on") || messageText.Contains("Greed on")))
             {
                 ProcessRollMessage(messageText, message);
@@ -190,7 +194,7 @@ public class LootTrackingService : IDisposable
     {
         try
         {
-            var localPlayer = Plugin.ClientState.LocalPlayer;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
 
             // Try to extract item ID from SeString payload (for linked items)
@@ -468,10 +472,10 @@ public class LootTrackingService : IDisposable
                 Quantity = quantity,
                 IsHQ = isHQ,
                 PlayerName = playerName,
-                PlayerContentId = isOwnLoot ? Plugin.ClientState.LocalContentId : 0,
+                PlayerContentId = isOwnLoot ? Plugin.PlayerState.ContentId : 0,
                 IsOwnLoot = isOwnLoot,
                 Source = LootSource.Unknown,
-                TerritoryType = Plugin.ClientState.TerritoryType,
+                TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName()
             };
 
@@ -545,7 +549,7 @@ public class LootTrackingService : IDisposable
         // Example: "8 pinches of ironquartz sand are obtained."
         try
         {
-            var localPlayer = Plugin.ClientState.LocalPlayer;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
 
             // Try to extract item ID from SeString payload (for linked items)
@@ -722,10 +726,10 @@ public class LootTrackingService : IDisposable
                 Quantity = quantity,
                 IsHQ = isHQ,
                 PlayerName = localPlayer.Name.TextValue,
-                PlayerContentId = Plugin.ClientState.LocalContentId,
+                PlayerContentId = Plugin.PlayerState.ContentId,
                 IsOwnLoot = true,
                 Source = LootSource.Unknown,
-                TerritoryType = Plugin.ClientState.TerritoryType,
+                TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName()
             };
 
@@ -745,7 +749,7 @@ public class LootTrackingService : IDisposable
         // Example: "The afflatus spinning wheel is added to your inventory."
         try
         {
-            var localPlayer = Plugin.ClientState.LocalPlayer;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
 
             // Try to extract item ID from SeString payload (for linked items)
@@ -832,10 +836,10 @@ public class LootTrackingService : IDisposable
                 Quantity = quantity,
                 IsHQ = isHQ,
                 PlayerName = localPlayer.Name.TextValue,
-                PlayerContentId = Plugin.ClientState.LocalContentId,
+                PlayerContentId = Plugin.PlayerState.ContentId,
                 IsOwnLoot = true,
                 Source = LootSource.Other,
-                TerritoryType = Plugin.ClientState.TerritoryType,
+                TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName(),
                 Timestamp = DateTime.Now
             };
@@ -856,7 +860,7 @@ public class LootTrackingService : IDisposable
         {
             Plugin.Log.Info($"Processing fishing message: {messageText}");
             
-            var localPlayer = Plugin.ClientState.LocalPlayer;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
 
             // Format: "You land a ItemName measuring N ilms!"
@@ -1006,10 +1010,10 @@ public class LootTrackingService : IDisposable
                 IsHQ = isHQ,
                 Timestamp = DateTime.Now,
                 PlayerName = localPlayer.Name.TextValue,
-                PlayerContentId = Plugin.ClientState.LocalContentId,
+                PlayerContentId = Plugin.PlayerState.ContentId,
                 IsOwnLoot = true,
                 Source = LootSource.Gathering, // Fishing counts as gathering
-                TerritoryType = Plugin.ClientState.TerritoryType,
+                TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                 ZoneName = GetCurrentZoneName()
             };
 
@@ -1668,11 +1672,11 @@ public class LootTrackingService : IDisposable
                         Rarity = itemDataFromPayload.Value.Rarity,
                         Quantity = 1,
                         IsHQ = false,
-                        PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
-                        PlayerContentId = Plugin.ClientState.LocalContentId,
+                        PlayerName = Plugin.ObjectTable.LocalPlayer?.Name.ToString() ?? "You",
+                        PlayerContentId = Plugin.PlayerState.ContentId,
                         IsOwnLoot = true,
                         Source = LootSource.Extraction,
-                        TerritoryType = Plugin.ClientState.TerritoryType,
+                        TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                         ZoneName = GetCurrentZoneName()
                     };
                     
@@ -1743,11 +1747,11 @@ public class LootTrackingService : IDisposable
                     Rarity = itemData.Value.Rarity,
                     Quantity = 1,
                     IsHQ = false,
-                    PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
-                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    PlayerName = Plugin.ObjectTable.LocalPlayer?.Name.ToString() ?? "You",
+                    PlayerContentId = Plugin.PlayerState.ContentId,
                     IsOwnLoot = true,
                     Source = LootSource.Extraction,
-                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                     ZoneName = GetCurrentZoneName()
                 };
                 
@@ -1843,11 +1847,11 @@ public class LootTrackingService : IDisposable
                     Rarity = itemData.Value.Rarity,
                     Quantity = quantity,
                     IsHQ = false,
-                    PlayerName = Plugin.ClientState.LocalPlayer?.Name.ToString() ?? "You",
-                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    PlayerName = Plugin.ObjectTable.LocalPlayer?.Name.ToString() ?? "You",
+                    PlayerContentId = Plugin.PlayerState.ContentId,
                     IsOwnLoot = true,
                     Source = LootSource.Exchange,
-                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                     ZoneName = GetCurrentZoneName()
                 };
                 
@@ -1870,7 +1874,7 @@ public class LootTrackingService : IDisposable
         // Handle "A bonus of 12,000 gil has been awarded for using the duty roulette."
         try
         {
-            var localPlayer = Plugin.ClientState.LocalPlayer;
+            var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
 
             // Extract gil amount from message
@@ -1903,10 +1907,10 @@ public class LootTrackingService : IDisposable
                     Quantity = gilAmount,
                     IsHQ = false,
                     PlayerName = localPlayer.Name.TextValue,
-                    PlayerContentId = Plugin.ClientState.LocalContentId,
+                    PlayerContentId = Plugin.PlayerState.ContentId,
                     IsOwnLoot = true,
                     Source = LootSource.DutyRoulette,
-                    TerritoryType = Plugin.ClientState.TerritoryType,
+                    TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
                     ZoneName = GetCurrentZoneName()
                 };
 
@@ -2044,7 +2048,7 @@ public class LootTrackingService : IDisposable
             // Pattern: "PlayerName rolls Need/Greed on [the/a] ItemName. XX!"
             if (messageText.StartsWith("You roll "))
             {
-                playerName = Plugin.ClientState.LocalPlayer?.Name.TextValue ?? "You";
+                playerName = Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "You";
                 
                 if (messageText.Contains("roll Need on "))
                 {
