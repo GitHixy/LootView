@@ -12,6 +12,8 @@ A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statist
 - **Highlight Animation**: New items pulse with a golden glow for visibility
 - **Party Loot Display**: See who obtained what items (color-coded by player)
 - **Smart Detection**: Works with combat, gathering, retainers, dungeons, raids, and more
+- **Measure Word Parsing**: Understands quantities written as "3 rolls of", "a bunch of", "2 baskets of" and similar, while leaving genuine item names like *Sack of Nuts* and *Basket of Flowers* intact
+- **Accurate Fishing Counts**: Multi-catch messages ("You land 2 mossy globules...") record the full quantity
 - **Bonus Tracking**: Automatically tracks duty roulette bonus gil rewards
 - **Blacklist System**: Right-click items to hide them from tracking, manage blacklist in Statistics window
 
@@ -40,6 +42,7 @@ A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statist
 - **Auto-Show Settings**: Configure window to open on login or when entering duties
 - **Server Info Bar**: Optional button in game's top bar for quick access
 - **Particle Effects**: Toggle visual effects for new item notifications
+- **Roll Window Toggle**: Turn the Need/Greed roll popup off entirely if you'd rather not see it
 
 ### User Interface
 - **Icon Buttons**: Clean, modern interface with FontAwesome icons
@@ -49,6 +52,11 @@ A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statist
 - **Responsive Design**: Adjustable window sizes with smooth scrolling
 
 ## Installation
+
+### From the Official Plugin Repository
+1. Open the plugin installer in game with `/xlplugins`
+2. Search for "LootView"
+3. Install and enable the plugin
 
 ### From Custom Repository
 1. In your Dalamud settings, add the custom repository URL: `https://raw.githubusercontent.com/GitHixy/LootView/main/repo.json`

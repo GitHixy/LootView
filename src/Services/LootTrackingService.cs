@@ -28,6 +28,99 @@ public class LootTrackingService : IDisposable
     private readonly Dictionary<string, DateTime> recentlyAddedItems = new();
     private readonly object deduplicationLock = new();
 
+    // Measure words the game puts in front of a material's real item name, e.g. "3 chunks of iron ore".
+    private static readonly (string Plural, string Singular)[] UnitWords =
+    {
+        ("chunks of ", "chunk of "),
+        ("clumps of ", "clump of "),
+        ("pinches of ", "pinch of "),
+        ("bottles of ", "bottle of "),
+        ("pieces of ", "piece of "),
+        ("phials of ", "phial of "),
+        ("stalks of ", "stalk of "),
+        ("handfuls of ", "handful of "),
+        ("portions of ", "portion of "),
+        ("sets of ", "set of "),
+        ("bundles of ", "bundle of "),
+        ("pots of ", "pot of "),
+        ("coils of ", "coil of "),
+        ("planks of ", "plank of "),
+        ("lengths of ", "length of "),
+        ("stacks of ", "stack of "),
+        ("bolts of ", "bolt of "),
+        ("loops of ", "loop of "),
+        ("rolls of ", "roll of "),
+        ("bunches of ", "bunch of "),
+        ("baskets of ", "basket of "),
+        ("sheets of ", "sheet of "),
+        ("glasses of ", "glass of "),
+        ("pouches of ", "pouch of "),
+        ("sacks of ", "sack of "),
+        ("crates of ", "crate of ")
+    };
+
+    private static HashSet<string> knownItemNames;
+    private static readonly object knownItemNamesLock = new();
+
+    /// <summary>
+    /// True when the phrase is itself a real item, so its leading measure word must be kept.
+    /// "Sack of Nuts", "Basket of Flowers" and "Pot of Cream Stew" all look like measure words but aren't.
+    /// </summary>
+    private static bool IsKnownItemName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+
+        lock (knownItemNamesLock)
+        {
+            if (knownItemNames == null)
+            {
+                var itemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+                if (itemSheet == null) return false;
+
+                knownItemNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in itemSheet)
+                {
+                    var itemNameStr = item.Name.ExtractText();
+                    if (!string.IsNullOrEmpty(itemNameStr)) knownItemNames.Add(itemNameStr);
+                }
+            }
+
+            return knownItemNames.Contains(name);
+        }
+    }
+
+    /// <summary>
+    /// Turns "3 chunks of iron ore" into "iron ore", but leaves genuine item names intact and
+    /// singularizes the measure word when that is what makes it a real item ("sacks of Nuts" -> "Sack of Nuts").
+    /// </summary>
+    private static bool TryStripUnitWord(string text, out string remainder)
+    {
+        remainder = text;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var trimmed = text.TrimEnd('.', ' ');
+        remainder = trimmed;
+        if (IsKnownItemName(trimmed)) return false;
+
+        foreach (var (plural, singular) in UnitWords)
+        {
+            if (trimmed.StartsWith(plural, StringComparison.OrdinalIgnoreCase))
+            {
+                var singularForm = singular + trimmed.Substring(plural.Length);
+                remainder = IsKnownItemName(singularForm) ? singularForm : trimmed.Substring(plural.Length);
+                return true;
+            }
+
+            if (trimmed.StartsWith(singular, StringComparison.OrdinalIgnoreCase))
+            {
+                remainder = trimmed.Substring(singular.Length);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public IReadOnlyList<LootItem> LootHistory
     {
         get
@@ -300,72 +393,26 @@ public class LootTrackingService : IDisposable
                 else if (uint.TryParse(quantityPart, out var parsedQty))
                 {
                     quantity = parsedQty;
-                    var rest = parts[1];
-                    
+
                     // Check if the next part is a unit word: "2 chunks of ItemName"
-                    var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
-                                           "bottles of ", "bottle of ", "pieces of ", "piece of ",
-                                           "phials of ", "phial of ", "stalks of ", "stalk of ",
-                                           "sets of ", "set of ", "bundles of ", "bundle of ",
-                                           "pots of ", "pot of ", "coils of ", "coil of ",
-                                           "planks of ", "plank of ", "lengths of ", "length of ",
-                                           "stacks of ", "stack of ", "bolts of ", "bolt of ",
-                                           "loops of ", "loop of " };
-                    foreach (var unit in unitWords)
-                    {
-                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
-                        {
-                            rest = rest.Substring(unit.Length);
-                            break;
-                        }
-                    }
-                    
+                    TryStripUnitWord(parts[1], out var rest);
                     itemName = rest.TrimEnd('.', ' ');
                 }
                 // Handle "a chunk of ItemName" / "chunks of ItemName" etc.
-                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) || 
+                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("an", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1;
-                    var rest = parts[1];
-                    
+
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of ", "coil of ", "plank of ", "length of ", "stack of ", "bolt of ", "loop of " };
-                    foreach (var unit in unitWords)
-                    {
-                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
-                        {
-                            rest = rest.Substring(unit.Length);
-                            break;
-                        }
-                    }
-                    
+                    TryStripUnitWord(parts[1], out var rest);
                     itemName = rest.TrimEnd('.', ' ');
                 }
                 // Handle "chunks of ItemName" / "pinches of ItemName" etc. (plural with no number)
-                else if (quantityPart.Equals("chunks", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("pinches", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("bottles", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("pieces", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("phials", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("stalks", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("coils", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("planks", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("lengths", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("stacks", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("bolts", StringComparison.OrdinalIgnoreCase) ||
-                         quantityPart.Equals("loops", StringComparison.OrdinalIgnoreCase))
+                else if (TryStripUnitWord(remaining, out var withoutUnit))
                 {
                     quantity = 1; // Default to 1 if no number specified
-                    var rest = parts[1];
-                    
-                    // Remove "of "
-                    if (rest.StartsWith("of ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        rest = rest.Substring(3);
-                    }
-                    
-                    itemName = rest.TrimEnd('.', ' ');
+                    itemName = withoutUnit.TrimEnd('.', ' ');
                 }
             }
             
@@ -623,42 +670,19 @@ public class LootTrackingService : IDisposable
                 else if (uint.TryParse(quantityPart, out var parsedQty))
                 {
                     quantity = parsedQty;
-                    var rest = parts[1];
-                    
+
                     // Check if the next part is a unit word: "2 chunks of ItemName"
-                    var unitWords = new[] { "chunks of ", "chunk of ", "pinches of ", "pinch of ", 
-                                           "bottles of ", "bottle of ", "pieces of ", "piece of ",
-                                           "phials of ", "phial of ", "stalks of ", "stalk of ",
-                                           "sets of ", "set of ", "bundles of ", "bundle of " };
-                    foreach (var unit in unitWords)
-                    {
-                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
-                        {
-                            rest = rest.Substring(unit.Length);
-                            break;
-                        }
-                    }
-                    
+                    TryStripUnitWord(parts[1], out var rest);
                     itemName = rest.TrimEnd('.', ' ');
                 }
                 // Handle "a chunk of ItemName" / "chunks of ItemName" etc.
-                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) || 
+                else if (quantityPart.Equals("a", StringComparison.OrdinalIgnoreCase) ||
                          quantityPart.Equals("an", StringComparison.OrdinalIgnoreCase))
                 {
                     quantity = 1;
-                    var rest = parts[1];
-                    
+
                     // Remove unit words like "chunk of", "pinch of", "bottle of"
-                    var unitWords = new[] { "chunk of ", "pinch of ", "bottle of ", "piece of ", "phial of ", "stalk of " };
-                    foreach (var unit in unitWords)
-                    {
-                        if (rest.StartsWith(unit, StringComparison.OrdinalIgnoreCase))
-                        {
-                            rest = rest.Substring(unit.Length);
-                            break;
-                        }
-                    }
-                    
+                    TryStripUnitWord(parts[1], out var rest);
                     itemName = rest.TrimEnd('.', ' ');
                 }
                 else
@@ -981,7 +1005,15 @@ public class LootTrackingService : IDisposable
             }
 
             string itemName = itemNameFromPayload;
-            uint quantity = 1; // Fishing always gives 1 item
+
+            // "You land 2 mossy globules measuring 7.1 ilms!" - a catch can yield more than one fish
+            uint quantity = 1;
+            var quantityMatch = System.Text.RegularExpressions.Regex.Match(messageText, @"You land ([\d,]+) ");
+            if (quantityMatch.Success && uint.TryParse(quantityMatch.Groups[1].Value.Replace(",", ""), out var landedQuantity) && landedQuantity > 0)
+            {
+                quantity = landedQuantity;
+            }
+
             bool isHQ = messageText.Contains(" HQ") || itemName.Contains(" HQ");
 
             // Remove HQ suffix if present
@@ -1145,29 +1177,9 @@ public class LootTrackingService : IDisposable
         
         // Remove unit words that appear in gathering/crafting materials
         // These need to be stripped to match the actual item names in Lumina
-        var unitPrefixes = new[] 
-        { 
-            "chunks of ", "chunk of ",
-            "clumps of ", "clump of ",
-            "pinches of ", "pinch of ",
-            "bottles of ", "bottle of ",
-            "pieces of ", "piece of ",
-            "phials of ", "phial of ",
-            "stalks of ", "stalk of ",
-            "handfuls of ", "handful of ",
-            "portions of ", "portion of ",
-            "sets of ", "set of ",
-            "bundles of ", "bundle of ",
-            "pots of ", "pot of "
-        };
-        
-        foreach (var prefix in unitPrefixes)
+        if (TryStripUnitWord(cleaned, out var withoutUnit))
         {
-            if (cleaned.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                cleaned = cleaned.Substring(prefix.Length).Trim();
-                break;
-            }
+            cleaned = withoutUnit.Trim();
         }
         
         // Special case: Fix "Tomestones" -> "Tomestone" for currency names
