@@ -58,11 +58,6 @@ A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statist
 2. Search for "LootView"
 3. Install and enable the plugin
 
-### From Custom Repository
-1. In your Dalamud settings, add the custom repository URL: `https://raw.githubusercontent.com/GitHixy/LootView/main/repo.json`
-2. Search for "LootView" in the plugin installer
-3. Install and enable the plugin
-
 ## Usage
 
 ### Commands
