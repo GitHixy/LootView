@@ -1,197 +1,179 @@
 # LootView
 
-A comprehensive loot tracking plugin for Final Fantasy XIV with advanced statistics, real-time roll monitoring, and zone loot tables. Built as a Dalamud plugin.
+**See every item you and your party pick up, as it drops.**
 
-## Features
+A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goatcorp/Dalamud). It shows drops live as they happen, keeps a permanent searchable history, and turns that history into statistics about where your loot actually comes from.
 
-### Real-Time Loot & Roll Tracking
-- **Live Display**: Automatically detects and displays loot as you obtain it
-- **Roll Monitoring**: Real-time Need/Greed roll tracking with compact auto-closing window
-- **Item Icons**: Shows actual item icons from the game with crisp rendering
-- **Rarity Colors**: Items colored by their in-game rarity (white/green/blue/purple/pink)
-- **Highlight Animation**: New items pulse with a golden glow for visibility
-- **Party Loot Display**: See who obtained what items (color-coded by player)
-- **Smart Detection**: Works with combat, gathering, retainers, dungeons, raids, and more
-- **Measure Word Parsing**: Understands quantities written as "3 rolls of", "a bunch of", "2 baskets of" and similar, while leaving genuine item names like *Sack of Nuts* and *Basket of Flowers* intact
-- **Accurate Fishing Counts**: Multi-catch messages ("You land 2 mossy globules...") record the full quantity
-- **Bonus Tracking**: Automatically tracks duty roulette bonus gil rewards
-- **Blacklist System**: Right-click items to hide them from tracking, manage blacklist in Statistics window
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O4O81NUMC7)
 
-### Zone Finder & Loot Tables
-- **Browse Any Duty**: View loot tables for any dungeon, trial, or raid
-- **Search by Name**: Find duties by typing their name
-- **Garland Tools Integration**: Powered by comprehensive Garland Tools API
-- **Current Zone Loading**: Automatically load loot table for your current duty
-- **Work-in-Progress Disclaimer**: Clear messaging about ongoing improvements
-
-### Advanced Statistics & Analytics
-- **Comprehensive Dashboard**: Overview of all your loot activity
-- **Duty Tracker**: Track items obtained per duty/instance run
-- **History Browser**: Search and filter through your complete loot history
-- **Trends Analysis**: Visualize loot patterns over time
-- **Peak Activity Times**: See when you're most active
-- **Items Per Hour**: Track your farming efficiency
-- **Blacklist Management**: View and manage all blacklisted items in one place
-- **Export Functionality**: Export your data to CSV/JSON
-
-### Customization
-- **Window Styles**: Three distinct visual styles (Classic, Compact, Neon)
-- **Lock Window**: Lock position and size to prevent accidental movement
-- **Background Transparency**: Adjustable window opacity
-- **Filter Options**: Show only your loot or see everyone's in party
-- **Auto-Show Settings**: Configure window to open on login or when entering duties
-- **Server Info Bar**: Optional button in game's top bar for quick access
-- **Particle Effects**: Toggle visual effects for new item notifications
-- **Roll Window Toggle**: Turn the Need/Greed roll popup off entirely if you'd rather not see it
-
-### User Interface
-- **Icon Buttons**: Clean, modern interface with FontAwesome icons
-- **Quick Access**: Stats, Lock, and Config buttons
-- **Tooltips**: Helpful hints on hover
-- **Organized Tabs**: Overview, History, Trends, Analytics, Duty Tracker, Zone Finder, Blacklist, Export
-- **Responsive Design**: Adjustable window sizes with smooth scrolling
-
-## Installation
-
-### From the Official Plugin Repository
-1. Open the plugin installer in game with `/xlplugins`
-2. Search for "LootView"
-3. Install and enable the plugin
-
-## Usage
-
-### Commands
-- `/lv` or `/lootview` - Toggle the main loot window
-- `/lv config` - Open configuration window
-
-### Main Window Controls
-- **Clear All** - Clear current session's loot display
-- **Stats Button** - Open Statistics & History window
-- **Table Button** - Open Zone Loot Table window (when in duty)
-- **Lock Button** - Lock/unlock window position and size
-- **Config Button** - Open settings
-- **Ko-fi Button** - Support plugin development
-- **Show Only My Loot** - Filter to show only your loot in party
-- **Style Selector** - Switch between Classic, Compact, or Neon visual styles
-- **Right-Click Items** - Add or remove items from blacklist
-
-### Statistics Window
-- **Overview**: General statistics and summary
-- **History**: Searchable loot history with filters
-- **Trends**: Visualize your loot patterns over time
-- **Analytics**: Deep dive into your loot data
-- **Duty Tracker**: Track loot per duty/instance
-- **Zone Finder**: Search and browse duty loot tables
-- **Blacklist**: View and manage items hidden from tracking
-- **Export**: Export your data to CSV or JSON
-
-### Configuration Options
-- **Open Window on Login**: Automatically show loot window when you log in
-- **Open Window on Duty Start**: Automatically show loot window when entering a duty
-- **Show Only My Loot**: Filter to display only your own loot
-- **Show Server Info Bar Button**: Add quick access button to game's top bar
-- **Max Items**: Control how many items to display (10-200)
-- **Window Style**: Choose between Classic table, Compact list, or Neon cyberpunk theme
-- **Background Alpha**: Adjust window transparency
-- **Enable Particle Effects**: Toggle visual effects for new items
-- **History Settings**: Configure automatic history tracking and retention
-
-### Blacklist System
-- **Add Items**: Right-click any item in the Loot Window and select "Add to Blacklist"
-- **Remove Items**: Right-click a blacklisted item and select "Remove from Blacklist", or manage in Statistics > Blacklist tab
-- **Persistent**: Blacklist is saved across sessions
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
-
-## License
-
-This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Thanks to the [Dalamud](https://github.com/goatcorp/Dalamud) team for the excellent plugin framework
-- Thanks to the FFXIV modding community for continued support and inspiration
-- Garland Tools API for loot table data
-
-## Support
-
-If you encounter any issues or have questions:
-
-1. Check the [Issues](https://github.com/GitHixy/LootView/issues) page for existing reports
-2. Create a new issue with detailed information about the problem
-
-## Changelog
-
-### Version 1.3.0
-
-#### Major Features Added
-- **Blacklist System**: Right-click items to add/remove from blacklist, preventing them from appearing in loot tracking
-- **Blacklist Management Tab**: New tab in Statistics window to view and manage all blacklisted items at once
-- **Loop Tracking**: Added support for "loop of" and "loops of" in crafting synthesis messages
-- **Inventory Messages**: Now tracks "is added to your inventory" messages for more comprehensive coverage
-- **Auto-Show on Duty**: New option to automatically show loot window when entering a duty
-- **Item Name Matching**: Improved item lookup to handle "The" prefix variations
-
-#### Bug Fixes
-- Fixed right-click context menus not working properly in all three window styles
-- Added deduplication system to prevent items from appearing twice when multiple chat messages trigger
-- Fixed context menu positioning and interaction issues
-
-#### Technical Improvements
-- Enhanced message parsing with additional unit word patterns
-- Improved item name cleaning and matching logic
-- Better handling of nullable item data from game sheets
-- Optimized duplicate detection with 2-second window and automatic cleanup
-
-### Version 1.2.5
-
-#### Major Features Added
-- **Real-Time Roll Tracking**: Live Need/Greed roll monitoring with auto-closing compact window
-- **Zone Finder & Loot Tables**: Browse and search loot tables for any duty, powered by Garland Tools API
-- **Duty Roulette Bonus Tracking**: Automatically tracks bonus gil from duty roulette completions
-- **Ko-fi Integration**: Support plugin development with built-in donation button
-
-#### Enhanced Loot Parsing
-- **Unit Words Support**: Added parsing for "Phials of", "Stalks of", "Chunks of", "Bottles of", "Pieces of", "Handfuls of", "Portions of"
-- **Improved Plural Handling**: Enhanced detection for irregular plurals (-ixes to -ix, -xes to -x, -ses to -s, -ies to -y, -ves to -f/-fe)
-- **Enhanced Loot List Detection**: Improved regex for all loot list message formats ("A", "An", or no article)
-- **Player Name Cleaning**: Automatic server suffix removal from player names
-
-#### Roll System Improvements
-- **Multiple Item Support**: Handle multiple drops of the same item in roll tracking
-- **Auto-Close Timer**: Roll window automatically closes 15 seconds after all winners are determined
-- **Smart Cleanup**: Manual window close clears all active rolls, auto-close only clears completed
-- **Real-Time Updates**: Live roll display with countdown timer in window title
-
-#### User Experience Enhancements
-- **Loot Table Disclaimer**: Clear messaging about work-in-progress status and ongoing improvements
-- **Improved UI Styling**: Enhanced button layouts and Ko-fi brand integration
-- **Manual History Cleanup**: Clear UI messaging that history cleanup is manual-only operation
-
-### Version 1.2.0
-
-- Major Bug/Logic Fixes
-
-### Version 1.1.0
-- Added comprehensive Statistics & History system
-- Added Duty Tracker with detailed run statistics
-- Added Trends and Analytics visualizations
-- Added data export functionality (CSV/JSON)
-- Improved UI with FontAwesome icons throughout
-- Added window lock functionality
-- Added Server Info Bar integration
-- Added advanced filtering and search in history
-- Improved background transparency controls
-- Fixed various UI and tracking issues
-
-### Version 1.0.0
-- Initial release
-- Real-time loot tracking
-- Party loot display
-- Configuration system
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
+![Version](https://img.shields.io/badge/version-1.4.0-D6B068)
 
 ---
 
-**Disclaimer**: This plugin is not affiliated with Square Enix or Final Fantasy XIV. Use at your own risk.
+## What it does
+
+### Live loot overlay
+
+Every drop appears the moment you get it, with its icon, rarity, quantity, who received it and how long ago. New items are highlighted with a brass sweep so you can catch them at a glance, and rarity is marked on each row.
+
+The parser handles the awkward parts of FFXIV's chat messages:
+
+- Measure words such as "3 rolls of", "a bunch of" or "2 baskets of" are read as quantities, while genuine item names like *Sack of Nuts* and *Basket of Flowers* are left intact.
+- Multi-catch fishing ("You land 2 mossy globules…") records the full count.
+- Crafting, gathering, retainers, chests, duty rewards and roulette bonus gil are all tracked.
+- Duplicate chat messages for the same drop are collapsed rather than double-counted.
+
+### Estimated value
+
+A strip above the list keeps a running market value of everything you've picked up, priced for your home world through [Universalis](https://universalis.app/). Two figures, because they answer different questions: **Avg** is what those items have actually been selling for, **Now** is what the cheapest listings are going for today.
+
+Only sellable items are looked up — whether an item can reach the market board is answered from the game's own data, so nothing untradable ever costs a request. Prices are cached for 30 minutes. Figures exclude the 5% market board tax, and anything Universalis has no data for is counted separately rather than silently as zero.
+
+Turn it off in **Settings → General → Market prices** if you'd rather the plugin made no network requests while you play.
+
+### Need / Greed rolls
+
+A panel appears while rolls are open, listing every roll as it comes in with Need and Greed marked separately, your own name highlighted, and a crown on the winner. It closes itself 15 seconds after the last item is awarded, with a countdown ring so you know it's about to go. You can turn it off entirely in the settings.
+
+### Statistics and history
+
+- **Overview** — totals, rarity split, play streaks and your most common items, over today, this week, this month or all time.
+- **History** — every item ever tracked, filtered by name, rarity, zone, high quality or owner, and paged.
+- **Trends** — daily and hourly activity charts, plus your rarest finds.
+- **Analytics** — the last *N* days compared against the period before them, across items, rarity and zones.
+- **Duties** — a leaderboard of every duty you've run, with clear times, items per run and your personal bests.
+- **Zone Finder** — look up the loot table for any dungeon, trial or raid by name.
+- **Blacklist** — everything you've hidden from tracking, in one place.
+- **Export** — the whole history as JSON or CSV.
+
+All of it is computed on a background thread, so opening the window or changing a filter never stalls the game, however large your history gets.
+
+### Loot tables
+
+Open the loot table for the duty you're in from the overlay's toolbar, or search for any other duty from the Zone Finder tab. Data comes from the [Garland Tools](https://www.garlandtools.org/) API.
+
+> Loot table data is still being corrected and expanded. Some entries may be incomplete or inaccurate.
+
+### Blacklist
+
+Right-click any row in the loot list to stop tracking that item. Blacklisted items stay hidden across sessions and can be restored from **Statistics → Blacklist**.
+
+---
+
+## Installing
+
+1. Open the plugin installer in game with `/xlplugins`.
+2. Search for **LootView**.
+3. Install and enable it.
+
+---
+
+## Using it
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `/lv` | Toggle the loot overlay |
+| `/lv config` | Open the settings window |
+
+You can also toggle the overlay from the server info bar, next to the server name.
+
+### Overlay toolbar
+
+| Button | What it does |
+| --- | --- |
+| People / person | Switch between all party loot and only your own |
+| Broom | Clear the current list |
+| Chart | Open Statistics & History |
+| Table | Loot table for the duty you're in *(only shown inside a duty)* |
+| Lock | Pin the window's position and size |
+| Cog | Settings |
+| Coffee | Ko-fi |
+
+Right-click a row to blacklist the item or copy its name. Hover a row for the full item details.
+
+---
+
+## Settings
+
+Settings are grouped into sections down the left of the window.
+
+| Section | What's in it |
+| --- | --- |
+| **General** | Open on login, open when a duty starts, show only your loot, how many items the list keeps (10–200), server info bar button, market price estimates |
+| **Tracking** | Track party loot, show the Need/Greed roll window |
+| **Appearance** | Lock position and size, background opacity |
+| **Effects** | Item tooltips, particle effects and their intensity |
+| **History** | Keep a permanent history, auto-save every 5 minutes, save to history when clearing the list |
+| **About** | Version, release notes, links |
+
+---
+
+## Your data
+
+Your loot history lives in your Dalamud configuration folder as `loot_history.json`, alongside `config.json`. Nothing about your loot, your character or your play is uploaded anywhere.
+
+Two features do make outbound requests, and both send only an identifier — never your character, your history or anything about you:
+
+- **Market prices** ask `universalis.app` for the going rate of item IDs currently in your loot list, along with your world's name. This runs automatically while the overlay is open; switch it off in **Settings → General → Market prices**.
+- **Zone Finder / loot tables** ask `garlandtools.org` for a duty's drop table, and only when you open one.
+
+Use **Statistics → Export** to take a backup at any time. **Statistics → Export → Delete all history** removes everything permanently.
+
+---
+
+## Building from source
+
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download) and a working Dalamud install — the build finds Dalamud through your XIVLauncher directory.
+
+```bash
+git clone https://github.com/GitHixy/LootView.git
+cd LootView
+dotnet build -c Release
+```
+
+The built plugin lands in `bin/Release/`. To run it as a dev plugin, point Dalamud's dev plugin locations at that folder, or copy the output into `%AppData%\XIVLauncher\devPlugins\LootView\`.
+
+`icon.png` and `icon.svg` are both generated from `tools/make_icon.py`, which shares its
+palette with `src/UI/Theme.cs`. Run `python tools/make_icon.py .` from the repo root after
+changing it, so the two files stay in step.
+
+---
+
+## Release notes
+
+The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
+
+**1.4.0** is a complete visual overhaul: one coherent theme across every window, a redesigned settings window, properly drawn statistics charts, and a rebuilt loot list and roll panel. The Compact and Neon layouts were removed — Classic is now the only view and received all of the design work. Statistics were also moved off the draw thread, so large histories no longer freeze the game.
+
+Full history is on the [Releases](https://github.com/GitHixy/LootView/releases) page.
+
+---
+
+## Contributing
+
+Issues, feature requests and pull requests are all welcome — use the [issue tracker](https://github.com/GitHixy/LootView/issues). If you're reporting a bug, the Dalamud log (`/xllog`) and what you were doing at the time help a lot.
+
+## Support the plugin
+
+LootView is free and always will be. If it's saved you some time, a coffee is genuinely appreciated.
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O4O81NUMC7)
+
+## Licence
+
+[GPL-3.0](LICENSE).
+
+## Thanks
+
+- The [Dalamud](https://github.com/goatcorp/Dalamud) team, for the plugin framework.
+- [Universalis](https://universalis.app/), for the market board data.
+- [Garland Tools](https://www.garlandtools.org/), for the loot table data.
+- The FFXIV plugin community, for the help and the example.
+
+---
+
+*Not affiliated with Square Enix. FINAL FANTASY XIV © SQUARE ENIX CO., LTD.*

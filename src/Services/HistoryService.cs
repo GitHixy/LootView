@@ -47,6 +47,30 @@ public class HistoryService : IDisposable
     }
 
     /// <summary>
+    /// A point-in-time copy of every tracked item. Taking the copy under the lock lets
+    /// callers filter and sort it on a background thread without racing new drops.
+    /// </summary>
+    public List<LootItem> SnapshotItems()
+    {
+        lock (historyLock)
+        {
+            return history.AllItems.ToList();
+        }
+    }
+
+    /// <summary>The number of items currently in history, for cheap change detection.</summary>
+    public int ItemCount
+    {
+        get
+        {
+            lock (historyLock)
+            {
+                return history.AllItems.Count;
+            }
+        }
+    }
+
+    /// <summary>
     /// Add a loot item to the persistent history
     /// </summary>
     public void AddItem(LootItem item)
@@ -128,6 +152,14 @@ public class HistoryService : IDisposable
     /// </summary>
     public LootStatistics CalculateStatistics(DateTime? startDate = null, DateTime? endDate = null)
     {
+        List<LootItem> itemList;
+        List<DateTime> activeDates;
+        int daysPlayed;
+        int historyCount;
+
+        // The lock is held only long enough to copy what we need. Aggregating a large
+        // history takes a while, and doing that under the lock would stall loot tracking
+        // on the game thread for the whole duration.
         lock (historyLock)
         {
             // Use cached "All Time" stats if available and no date filters
@@ -139,7 +171,7 @@ public class HistoryService : IDisposable
                     return cachedAllTimeStats;
                 }
             }
-            
+
             var items = history.AllItems.AsEnumerable();
 
             // Apply date filters
@@ -152,128 +184,155 @@ public class HistoryService : IDisposable
                 items = items.Where(i => i.Timestamp <= endDate.Value);
             }
 
-            var itemList = items.ToList();
-            var stats = new LootStatistics();
+            itemList = items.ToList();
+            activeDates = history.DailyStatistics.Keys.ToList();
+            daysPlayed = history.DailyStatistics.Count;
+            historyCount = history.AllItems.Count;
+        }
 
-            if (!itemList.Any())
-            {
-                return stats;
-            }
+        var stats = BuildStatistics(itemList, activeDates, daysPlayed);
 
-            // Overall statistics
-            stats.TotalItems = itemList.Count;
-            stats.TotalUnique = itemList.Select(i => i.ItemId).Distinct().Count();
-            stats.TotalHQ = itemList.Count(i => i.IsHQ);
-            stats.TotalOwnLoot = itemList.Count(i => i.IsOwnLoot);
-            stats.TotalPartyLoot = itemList.Count(i => !i.IsOwnLoot);
-            stats.HQPercentage = stats.TotalItems > 0 ? (stats.TotalHQ * 100.0 / stats.TotalItems) : 0;
-
-            // Date range
-            stats.FirstItemDate = itemList.Min(i => i.Timestamp);
-            stats.LastItemDate = itemList.Max(i => i.Timestamp);
-            var daysSpan = (stats.LastItemDate.Value - stats.FirstItemDate.Value).TotalDays + 1;
-            stats.DaysPlayed = history.DailyStatistics.Count;
-            stats.ItemsPerDay = daysSpan > 0 ? stats.TotalItems / daysSpan : 0;
-
-            // Rarity breakdown
-            var rarityGroups = itemList.GroupBy(i => i.Rarity);
-            foreach (var group in rarityGroups)
-            {
-                stats.ByRarity[group.Key] = new RarityStats
-                {
-                    Rarity = group.Key,
-                    Count = group.Count(),
-                    HQCount = group.Count(i => i.IsHQ),
-                    Percentage = (group.Count() * 100.0) / stats.TotalItems,
-                    LatestItem = group.OrderByDescending(i => i.Timestamp).First()
-                };
-            }
-
-            // Zone statistics
-            var zoneGroups = itemList.Where(i => !string.IsNullOrEmpty(i.ZoneName))
-                                     .GroupBy(i => i.ZoneName);
-            foreach (var group in zoneGroups)
-            {
-                stats.ByZone[group.Key] = new ZoneStats
-                {
-                    ZoneName = group.Key,
-                    TotalItems = group.Count(),
-                    UniqueItems = group.Select(i => i.ItemId).Distinct().Count(),
-                    MostCommonRarity = group.GroupBy(i => i.Rarity)
-                                           .OrderByDescending(g => g.Count())
-                                           .First().Key,
-                    LastVisited = group.Max(i => i.Timestamp),
-                    BestItem = group.OrderByDescending(i => i.Rarity).First()
-                };
-            }
-
-            // Daily items
-            var dailyGroups = itemList.GroupBy(i => i.Timestamp.Date);
-            foreach (var group in dailyGroups)
-            {
-                stats.DailyItems[group.Key] = group.Count();
-            }
-
-            // Hourly distribution
-            var hourlyGroups = itemList.GroupBy(i => i.Timestamp.Hour);
-            foreach (var group in hourlyGroups)
-            {
-                stats.HourlyItems[group.Key] = group.Count();
-            }
-
-            // Most common items
-            var itemFrequency = itemList.GroupBy(i => i.ItemId)
-                                       .Select(g => new ItemFrequency
-                                       {
-                                           ItemId = g.Key,
-                                           ItemName = g.First().ItemName,
-                                           IconId = g.First().IconId,
-                                           Rarity = g.First().Rarity,
-                                           Count = g.Count(),
-                                           HQCount = g.Count(i => i.IsHQ),
-                                           LastObtained = g.Max(i => i.Timestamp)
-                                       })
-                                       .OrderByDescending(f => f.Count)
-                                       .Take(20)
-                                       .ToList();
-            stats.MostCommonItems = itemFrequency;
-
-            // Rarest items (highest rarity, least common)
-            stats.RarestItems = itemList
-                .OrderByDescending(i => i.Rarity)
-                .ThenBy(i => itemList.Count(x => x.ItemId == i.ItemId))
-                .Take(20)
-                .ToList();
-
-            // Recent items
-            stats.RecentItems = itemList
-                .OrderByDescending(i => i.Timestamp)
-                .Take(50)
-                .ToList();
-
-            // Streaks
-            CalculateStreaks(stats);
-
-            // Cache the all-time stats
-            if (!startDate.HasValue && !endDate.HasValue)
+        // Cache the all-time stats
+        if (!startDate.HasValue && !endDate.HasValue)
+        {
+            lock (historyLock)
             {
                 cachedAllTimeStats = stats;
-                lastHistoryCount = history.AllItems.Count;
+                lastHistoryCount = historyCount;
                 lastAllTimeStatsUpdate = DateTime.Now;
-                Plugin.Log.Debug("Cached all-time statistics ({Count} items)", history.AllItems.Count);
+                Plugin.Log.Debug("Cached all-time statistics ({Count} items)", historyCount);
             }
-
-            return stats;
         }
+
+        return stats;
     }
 
-    private void CalculateStreaks(LootStatistics stats)
+    /// <summary>
+    /// Aggregates a snapshot of loot into statistics. Pure and lock-free, so it is safe
+    /// to run on a background thread.
+    /// </summary>
+    private static LootStatistics BuildStatistics(List<LootItem> itemList, List<DateTime> activeDates, int daysPlayed)
     {
-        var dates = history.DailyStatistics.Keys.OrderBy(d => d).ToList();
-        if (!dates.Any())
+        var stats = new LootStatistics();
+
+        if (itemList.Count == 0)
+        {
+            return stats;
+        }
+
+        // Counted once up front: the rarest-items sort needs a per-item total, and
+        // recounting inside the comparer turns that section into an O(n^2) walk.
+        var occurrences = new Dictionary<uint, int>();
+        foreach (var item in itemList)
+        {
+            occurrences.TryGetValue(item.ItemId, out var seen);
+            occurrences[item.ItemId] = seen + 1;
+        }
+
+        // Overall statistics
+        stats.TotalItems = itemList.Count;
+        stats.TotalUnique = occurrences.Count;
+        stats.TotalHQ = itemList.Count(i => i.IsHQ);
+        stats.TotalOwnLoot = itemList.Count(i => i.IsOwnLoot);
+        stats.TotalPartyLoot = stats.TotalItems - stats.TotalOwnLoot;
+        stats.HQPercentage = stats.TotalItems > 0 ? (stats.TotalHQ * 100.0 / stats.TotalItems) : 0;
+
+        // Date range
+        stats.FirstItemDate = itemList.Min(i => i.Timestamp);
+        stats.LastItemDate = itemList.Max(i => i.Timestamp);
+        var daysSpan = (stats.LastItemDate.Value - stats.FirstItemDate.Value).TotalDays + 1;
+        stats.DaysPlayed = daysPlayed;
+        stats.ItemsPerDay = daysSpan > 0 ? stats.TotalItems / daysSpan : 0;
+
+        // Rarity breakdown
+        foreach (var group in itemList.GroupBy(i => i.Rarity))
+        {
+            var count = group.Count();
+            stats.ByRarity[group.Key] = new RarityStats
+            {
+                Rarity = group.Key,
+                Count = count,
+                HQCount = group.Count(i => i.IsHQ),
+                Percentage = (count * 100.0) / stats.TotalItems,
+                LatestItem = group.OrderByDescending(i => i.Timestamp).First()
+            };
+        }
+
+        // Zone statistics
+        var zoneGroups = itemList.Where(i => !string.IsNullOrEmpty(i.ZoneName))
+                                 .GroupBy(i => i.ZoneName);
+        foreach (var group in zoneGroups)
+        {
+            stats.ByZone[group.Key] = new ZoneStats
+            {
+                ZoneName = group.Key,
+                TotalItems = group.Count(),
+                UniqueItems = group.Select(i => i.ItemId).Distinct().Count(),
+                MostCommonRarity = group.GroupBy(i => i.Rarity)
+                                       .OrderByDescending(g => g.Count())
+                                       .First().Key,
+                LastVisited = group.Max(i => i.Timestamp),
+                BestItem = group.OrderByDescending(i => i.Rarity).First()
+            };
+        }
+
+        // Daily items
+        foreach (var group in itemList.GroupBy(i => i.Timestamp.Date))
+        {
+            stats.DailyItems[group.Key] = group.Count();
+        }
+
+        // Hourly distribution
+        foreach (var group in itemList.GroupBy(i => i.Timestamp.Hour))
+        {
+            stats.HourlyItems[group.Key] = group.Count();
+        }
+
+        // Most common items
+        stats.MostCommonItems = itemList.GroupBy(i => i.ItemId)
+                                   .Select(g => new ItemFrequency
+                                   {
+                                       ItemId = g.Key,
+                                       ItemName = g.First().ItemName,
+                                       IconId = g.First().IconId,
+                                       Rarity = g.First().Rarity,
+                                       Count = g.Count(),
+                                       HQCount = g.Count(i => i.IsHQ),
+                                       LastObtained = g.Max(i => i.Timestamp)
+                                   })
+                                   .OrderByDescending(f => f.Count)
+                                   .Take(20)
+                                   .ToList();
+
+        // Rarest items (highest rarity, least common)
+        stats.RarestItems = itemList
+            .OrderByDescending(i => i.Rarity)
+            .ThenBy(i => occurrences[i.ItemId])
+            .Take(20)
+            .ToList();
+
+        // Recent items
+        stats.RecentItems = itemList
+            .OrderByDescending(i => i.Timestamp)
+            .Take(50)
+            .ToList();
+
+        // Streaks
+        CalculateStreaks(stats, activeDates);
+
+        return stats;
+    }
+
+    private static void CalculateStreaks(LootStatistics stats, List<DateTime> activeDates)
+    {
+        var dates = activeDates.OrderBy(d => d).ToList();
+        if (dates.Count == 0)
         {
             return;
         }
+
+        // The streak walks probe day by day, so membership has to be O(1), not a list scan.
+        var dateSet = new HashSet<DateTime>(dates);
 
         int currentStreak = 0;
         int longestStreak = 0;
@@ -283,21 +342,21 @@ public class HistoryService : IDisposable
         var today = DateTime.Now.Date;
         var yesterday = today.AddDays(-1);
         
-        if (dates.Contains(today))
+        if (dateSet.Contains(today))
         {
             currentStreak = 1;
             var checkDate = yesterday;
-            while (dates.Contains(checkDate))
+            while (dateSet.Contains(checkDate))
             {
                 currentStreak++;
                 checkDate = checkDate.AddDays(-1);
             }
         }
-        else if (dates.Contains(yesterday))
+        else if (dateSet.Contains(yesterday))
         {
             currentStreak = 1;
             var checkDate = yesterday.AddDays(-1);
-            while (dates.Contains(checkDate))
+            while (dateSet.Contains(checkDate))
             {
                 currentStreak++;
                 checkDate = checkDate.AddDays(-1);
@@ -554,11 +613,19 @@ public class HistoryService : IDisposable
     /// </summary>
     public Dictionary<uint, DutyStatistics> CalculateDutyStatistics()
     {
+        // Copy the runs, then aggregate outside the lock - same reasoning as
+        // CalculateStatistics: this can run on a background thread and must not
+        // hold up loot tracking on the game thread.
+        List<DutyRun> runsSnapshot;
         lock (historyLock)
+        {
+            runsSnapshot = history.DutyRuns.ToList();
+        }
+
         {
             var dutyStats = new Dictionary<uint, DutyStatistics>();
 
-            var groupedRuns = history.DutyRuns
+            var groupedRuns = runsSnapshot
                 .Where(r => r.ContentId > 0)
                 .GroupBy(r => r.ContentId);
 

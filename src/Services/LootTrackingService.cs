@@ -38,6 +38,7 @@ public class LootTrackingService : IDisposable
         ("pieces of ", "piece of "),
         ("phials of ", "phial of "),
         ("stalks of ", "stalk of "),
+        ("sprigs of ", "sprig of "),
         ("handfuls of ", "handful of "),
         ("portions of ", "portion of "),
         ("sets of ", "set of "),

@@ -1,7 +1,10 @@
-﻿using System;
+using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Utility.Raii;
 using LootView.Services;
+using LootView.UI;
 
 namespace LootView.Windows;
 
@@ -10,14 +13,28 @@ public class ConfigWindow : Window
     private readonly Plugin plugin;
     private readonly ConfigurationService configService;
 
-    public ConfigWindow(Plugin plugin, ConfigurationService configService) 
-        : base("LootView Configuration###LootViewConfig")
+    private int section;
+
+    private static readonly (FontAwesomeIcon Icon, string Label, string Blurb)[] Sections =
+    [
+        (FontAwesomeIcon.SlidersH, "General", "Window behaviour and what the tracker shows"),
+        (FontAwesomeIcon.Crosshairs, "Tracking", "Which loot events LootView listens for"),
+        (FontAwesomeIcon.PaintBrush, "Appearance", "How the overlay sits on your screen"),
+        (FontAwesomeIcon.Magic, "Effects", "Drop flourishes and item tooltips"),
+        (FontAwesomeIcon.Database, "History", "Long-term storage and statistics"),
+        (FontAwesomeIcon.InfoCircle, "About", "Version, links and support"),
+    ];
+
+    public ConfigWindow(Plugin plugin, ConfigurationService configService)
+        : base("LootView Settings###LootViewConfig")
     {
         this.plugin = plugin;
         this.configService = configService;
-        
-        Size = new Vector2(500, 400);
-        SizeConstraintMin = new Vector2(400, 300);
+
+        Size = new Vector2(660, 480);
+        SizeConstraintMin = new Vector2(600, 420);
+        SizeConstraintMax = new Vector2(1100, 900);
+        WindowFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
     }
 
     protected override void DrawContents()
@@ -25,251 +42,508 @@ public class ConfigWindow : Window
         try
         {
             var config = configService.Configuration;
-            
-            // Apply background alpha from configuration
-            BgAlpha = config.BackgroundAlpha;
+            BgAlpha = Math.Max(config.BackgroundAlpha, 0.85f);
 
-            ImGui.Text("LootView Settings");
-            ImGui.Separator();
-            
-            // Statistics button at the top
-            if (ImGui.Button("Open Statistics & History", new Vector2(200, 30)))
-            {
-                plugin.StatisticsWindow.IsOpen = true;
-            }
-            ImGui.SameLine();
-            ImGui.TextDisabled("View your loot statistics, trends, and export history");
-            
-            ImGui.Spacing();
-            ImGui.Separator();
-            
-            // Display Settings
-            if (ImGui.CollapsingHeader("Display Settings", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                bool openOnLogin = config.OpenOnLogin;
-                if (ImGui.Checkbox("Open Window on Login", ref openOnLogin))
-                {
-                    config.OpenOnLogin = openOnLogin;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Automatically open the loot tracker window when you log into the game");
-                }
-                
-                bool showOnDutyStart = config.ShowOnDutyStart;
-                if (ImGui.Checkbox("Open Window on Duty Start", ref showOnDutyStart))
-                {
-                    config.ShowOnDutyStart = showOnDutyStart;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Automatically open the loot tracker window when entering a duty");
-                }
-                
-                bool showOnlyMyLoot = config.ShowOnlyOwnLoot;
-                if (ImGui.Checkbox("Show Only My Loot", ref showOnlyMyLoot))
-                {
-                    config.ShowOnlyOwnLoot = showOnlyMyLoot;
-                    configService.Save();
-                }
-                
-                bool showDtrBar = config.ShowDtrBar;
-                if (ImGui.Checkbox("Show Server Info Bar Button", ref showDtrBar))
-                {
-                    config.ShowDtrBar = showDtrBar;
-                    configService.Save();
-                    
-                    // Update DTR bar visibility immediately
-                    plugin.UpdateDtrBarVisibility(showDtrBar);
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Show a button in the server info bar (next to the server name) to toggle the overlay\nClick the button to open/close the loot window");
-                }
-                
-                int maxItems = config.MaxDisplayedItems;
-                if (ImGui.SliderInt("Max Items", ref maxItems, 10, 200))
-                {
-                    config.MaxDisplayedItems = maxItems;
-                    configService.Save();
-                }
-            }
-            
-            // Tracking Settings
-            if (ImGui.CollapsingHeader("Tracking"))
-            {
-                bool trackPartyLoot = config.TrackAllPartyLoot;
-                if (ImGui.Checkbox("Track Party Loot", ref trackPartyLoot))
-                {
-                    config.TrackAllPartyLoot = trackPartyLoot;
-                    configService.Save();
-                }
+            Theme.WindowHeader(FontAwesomeIcon.Cog, "Settings", Sections[section].Blurb);
 
-                bool enableRollTracking = config.EnableRollTracking;
-                if (ImGui.Checkbox("Enable Loot Roll Window", ref enableRollTracking))
-                {
-                    config.EnableRollTracking = enableRollTracking;
-                    configService.Save();
+            var avail = ImGui.GetContentRegionAvail();
+            const float railWidth = 158f;
 
-                    if (!enableRollTracking)
-                    {
-                        plugin.LootTracker.ClearAllRolls();
-                    }
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Show the Need/Greed roll popup and track roll results\nDisable if you don't want the roll window appearing during loot rolls");
-                }
-            }
-            
-            // Visual Effects Settings
-            if (ImGui.CollapsingHeader("Visual Effects", ImGuiTreeNodeFlags.DefaultOpen))
+            DrawNavRail(new Vector2(railWidth, avail.Y));
+
+            ImGui.SameLine(0, 12);
+
+            using var pane = Theme.Region("##ConfigPane", new Vector2(0, avail.Y));
+            if (!pane) return;
+
+            switch (section)
             {
-                bool showTooltips = config.ShowTooltips;
-                if (ImGui.Checkbox("Show Item Tooltips", ref showTooltips))
-                {
-                    config.ShowTooltips = showTooltips;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Show detailed item information when hovering over items");
-                }
-                
-                bool enableParticles = config.EnableParticleEffects;
-                if (ImGui.Checkbox("Enable Particle Effects", ref enableParticles))
-                {
-                    config.EnableParticleEffects = enableParticles;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Show rarity-based particle effects when obtaining new items");
-                }
-                
-                if (config.EnableParticleEffects)
-                {
-                    ImGui.Indent();
-                    float particleIntensity = config.ParticleIntensity;
-                    if (ImGui.SliderFloat("Particle Intensity", ref particleIntensity, 0.0f, 2.0f, "%.1f"))
-                    {
-                        config.ParticleIntensity = particleIntensity;
-                        configService.Save();
-                    }
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.SetTooltip("Controls the number of particles spawned\n0.0 = Minimal, 1.0 = Normal, 2.0 = Maximum");
-                    }
-                    ImGui.Unindent();
-                }
-                
-                float bgAlpha = config.BackgroundAlpha;
-                if (ImGui.SliderFloat("Background Alpha", ref bgAlpha, 0.0f, 1.0f, "%.2f"))
-                {
-                    config.BackgroundAlpha = bgAlpha;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Transparency level for window backgrounds\n0.0 = Fully Transparent, 1.0 = Fully Opaque");
-                }
+                case 0: DrawGeneral(); break;
+                case 1: DrawTracking(); break;
+                case 2: DrawAppearance(); break;
+                case 3: DrawEffects(); break;
+                case 4: DrawHistory(); break;
+                case 5: DrawAbout(); break;
             }
-            
-            // History & Statistics Settings
-            if (ImGui.CollapsingHeader("History & Statistics"))
-            {
-                bool enableHistory = config.EnableHistoryTracking;
-                if (ImGui.Checkbox("Enable History Tracking", ref enableHistory))
-                {
-                    config.EnableHistoryTracking = enableHistory;
-                    configService.Save();
-                }
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Persistently save all loot items to disk for statistics and history tracking");
-                }
-                
-                if (config.EnableHistoryTracking)
-                {
-                    ImGui.Indent();
-                    
-                    bool autoSave = config.EnableHistoryAutoSave;
-                    if (ImGui.Checkbox("Auto-Save History", ref autoSave))
-                    {
-                        config.EnableHistoryAutoSave = autoSave;
-                        configService.Save();
-                    }
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.SetTooltip("Automatically save history to disk periodically (every 5 minutes)");
-                    }
-                    
-                    bool saveOnClear = config.SaveToHistoryOnClear;
-                    if (ImGui.Checkbox("Save to History on Clear", ref saveOnClear))
-                    {
-                        config.SaveToHistoryOnClear = saveOnClear;
-                        configService.Save();
-                    }
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(?)");
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.SetTooltip("Save current items to persistent history when clearing the display list");
-                    }
-                    
-                    ImGui.Spacing();
-                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.9f, 0.5f, 1.0f));
-                    ImGui.TextWrapped("ℹ History is kept forever unless you manually delete it.");
-                    ImGui.PopStyleColor();
-                    ImGui.TextWrapped("Use Statistics > Data Management to clean up old history if needed.");
-                    
-                    ImGui.Unindent();
-                }
-                
-                ImGui.Spacing();
-                var history = plugin.HistoryService.GetHistory();
-                ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1.0f), $"{history.TotalItemsObtained:N0} items tracked");
-                ImGui.SameLine();
-                ImGui.TextDisabled($"({history.DailyStatistics.Count} days)");
-                
-                if (ImGui.Button("Open Statistics Window"))
-                {
-                    plugin.StatisticsWindow.IsOpen = true;
-                }
-            }
-            
-            ImGui.Separator();
-            if (ImGui.Button("Close"))
-            {
-                IsOpen = false;
-            }
+
+            ImGui.Dummy(new Vector2(0, 8));
         }
         catch (Exception ex)
         {
             Plugin.Log.Error(ex, "Error drawing config window");
-            ImGui.TextColored(new Vector4(1, 0, 0, 1), "Error!");
+            ImGui.TextColored(Theme.Bad, "Error drawing settings.");
+        }
+    }
+
+    private void DrawNavRail(Vector2 size)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var origin = ImGui.GetCursorScreenPos();
+
+        dl.AddRectFilled(origin, origin + size, Theme.U32(Theme.Panel, 0.55f), Theme.Radius);
+        dl.AddRect(origin, origin + size, Theme.U32(Theme.Line, 0.8f), Theme.Radius, ImDrawFlags.None, 1f);
+
+        using var child = Theme.Region("##ConfigNav", size);
+        if (!child) return;
+
+        ImGui.Dummy(new Vector2(0, 4));
+
+        for (var i = 0; i < Sections.Length; i++)
+        {
+            var (icon, label, _) = Sections[i];
+            var selected = section == i;
+
+            var p = ImGui.GetCursorScreenPos();
+            var w = ImGui.GetContentRegionAvail().X - 8;
+            const float h = 34f;
+
+            ImGui.SetCursorScreenPos(new Vector2(p.X + 4, p.Y));
+            if (ImGui.InvisibleButton($"##nav{i}", new Vector2(w, h)))
+                section = i;
+
+            var hovered = ImGui.IsItemHovered();
+            var min = new Vector2(p.X + 4, p.Y);
+            var max = new Vector2(p.X + 4 + w, p.Y + h);
+
+            if (selected)
+            {
+                dl.AddRectFilled(min, max, Theme.U32(Theme.Gold, 0.13f), Theme.Radius);
+                dl.AddRectFilled(min, new Vector2(min.X + 2.5f, max.Y), Theme.U32(Theme.Gold, 0.95f), 1.5f);
+            }
+            else if (hovered)
+            {
+                dl.AddRectFilled(min, max, Theme.U32(Theme.Crystal, 0.12f), Theme.Radius);
+            }
+
+            var tint = selected ? Theme.GoldBright : hovered ? Theme.Text : Theme.TextMuted;
+
+            using (ImRaii.PushFont(UiBuilder.IconFont))
+            {
+                var glyph = icon.ToIconString();
+                var gs = ImGui.CalcTextSize(glyph);
+                dl.AddText(new Vector2(min.X + 15 - gs.X * 0.5f, min.Y + (h - gs.Y) * 0.5f), Theme.U32(tint), glyph);
+            }
+
+            var ts = ImGui.CalcTextSize(label);
+            dl.AddText(new Vector2(min.X + 30, min.Y + (h - ts.Y) * 0.5f), Theme.U32(tint), label);
+
+            ImGui.Dummy(new Vector2(0, 2));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Sections
+    // ------------------------------------------------------------------
+
+    private void DrawGeneral()
+    {
+        var config = configService.Configuration;
+
+        Theme.SectionHeader("Startup", FontAwesomeIcon.PowerOff);
+
+        var openOnLogin = config.OpenOnLogin;
+        if (Theme.ToggleRow("Open on login", ref openOnLogin,
+                "Open the loot tracker automatically when you log into the game."))
+        {
+            config.OpenOnLogin = openOnLogin;
+            configService.Save();
+        }
+
+        var showOnDutyStart = config.ShowOnDutyStart;
+        if (Theme.ToggleRow("Open when a duty starts", ref showOnDutyStart,
+                "Open the loot tracker automatically when you enter a duty."))
+        {
+            config.ShowOnDutyStart = showOnDutyStart;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Contents", FontAwesomeIcon.ListUl);
+
+        var showOnlyMyLoot = config.ShowOnlyOwnLoot;
+        if (Theme.ToggleRow("Show only my loot", ref showOnlyMyLoot,
+                "Hide everything your party members pick up."))
+        {
+            config.ShowOnlyOwnLoot = showOnlyMyLoot;
+            config.ShowOnlyMyLoot = showOnlyMyLoot;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.Text, "Maximum items shown");
+        ImGui.SameLine(0, 6);
+        Theme.HelpMarker("How many recent drops the list keeps before the oldest fall off.");
+        ImGui.SameLine(0, 14);
+
+        var maxItems = config.MaxDisplayedItems;
+        if (Theme.SliderInt("##MaxItems", ref maxItems, 10, 200, 210f))
+        {
+            config.MaxDisplayedItems = maxItems;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Integration", FontAwesomeIcon.PlugCircleBolt);
+
+        var showDtrBar = config.ShowDtrBar;
+        if (Theme.ToggleRow("Server info bar button", ref showDtrBar,
+                "Adds a LootView entry next to the server name. Click it to toggle the overlay."))
+        {
+            config.ShowDtrBar = showDtrBar;
+            configService.Save();
+            plugin.UpdateDtrBarVisibility(showDtrBar);
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Market prices", FontAwesomeIcon.Coins);
+
+        var enablePrices = config.EnableMarketPrices;
+        if (Theme.ToggleRow("Estimate what your loot is worth", ref enablePrices,
+                "Shows a running market value above the list, priced for your home world. Only sellable items are looked up."))
+        {
+            config.EnableMarketPrices = enablePrices;
+            configService.Save();
+        }
+
+        if (config.EnableMarketPrices)
+        {
+            ImGui.Dummy(new Vector2(0, 6));
+            var world = plugin.MarketPriceService.WorldName;
+            Theme.Callout(FontAwesomeIcon.CloudDownloadAlt, "Powered by Universalis",
+                (world is null
+                    ? "Prices come from universalis.app, for the world your character is from. "
+                    : $"Prices come from universalis.app, for {world}. ") +
+                "They are crowd-sourced, cached for 30 minutes, and exclude the 5% market board tax.",
+                Theme.Crystal);
+
+            ImGui.Dummy(new Vector2(0, 8));
+            if (Theme.GhostButton("Refresh prices", new Vector2(150, 30)))
+            {
+                plugin.MarketPriceService.ClearCache();
+            }
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.Terminal, "Chat commands",
+            "/lv toggles the overlay  ·  /lv config opens this window", Theme.Crystal);
+    }
+
+    private void DrawTracking()
+    {
+        var config = configService.Configuration;
+
+        Theme.SectionHeader("Sources", FontAwesomeIcon.Crosshairs);
+
+        var trackPartyLoot = config.TrackAllPartyLoot;
+        if (Theme.ToggleRow("Track party loot", ref trackPartyLoot,
+                "Record items your party members obtain, not just your own."))
+        {
+            config.TrackAllPartyLoot = trackPartyLoot;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Need / Greed", FontAwesomeIcon.Dice);
+
+        var enableRollTracking = config.EnableRollTracking;
+        if (Theme.ToggleRow("Show the roll window", ref enableRollTracking,
+                "Displays a live panel with every Need/Greed roll and the winner. Turn this off if you don't want the popup during loot rolls."))
+        {
+            config.EnableRollTracking = enableRollTracking;
+            configService.Save();
+
+            if (!enableRollTracking)
+            {
+                plugin.LootTracker.ClearAllRolls();
+            }
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.Ban, "Blacklist",
+            "Right-click any item in the loot list to stop tracking it. Manage the full list from Statistics → Blacklist.",
+            Theme.Warn);
+
+        ImGui.Dummy(new Vector2(0, 10));
+        if (Theme.GhostButton("Open blacklist", new Vector2(160, 30)))
+        {
+            plugin.StatisticsWindow.IsOpen = true;
+        }
+    }
+
+    private void DrawAppearance()
+    {
+        var config = configService.Configuration;
+
+        Theme.SectionHeader("Window", FontAwesomeIcon.WindowMaximize);
+
+        var lockPos = config.LockWindowPosition;
+        if (Theme.ToggleRow("Lock position and size", ref lockPos,
+                "Pins the overlay in place so it can't be dragged or resized by accident."))
+        {
+            config.LockWindowPosition = lockPos;
+            config.LockWindowSize = lockPos;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Transparency", FontAwesomeIcon.Adjust);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.Text, "Background opacity");
+        ImGui.SameLine(0, 14);
+
+        var bgAlpha = config.BackgroundAlpha;
+        if (Theme.Slider("##BgAlpha", ref bgAlpha, 0.0f, 1.0f, "%.2f", 210f))
+        {
+            config.BackgroundAlpha = bgAlpha;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.TextColored(Theme.TextFaint, "Preview");
+        ImGui.Dummy(new Vector2(0, 2));
+        DrawOpacityPreview(bgAlpha);
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.Palette, "Rarity colours",
+            "Item names use the game's own rarity ramp: white, green, blue, purple and pink.",
+            Theme.Crystal);
+
+        ImGui.Dummy(new Vector2(0, 8));
+        DrawRarityLegend();
+    }
+
+    private static void DrawOpacityPreview(float alpha)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var p = ImGui.GetCursorScreenPos();
+        var w = Math.Min(ImGui.GetContentRegionAvail().X, 300f);
+        const float h = 46f;
+        var max = new Vector2(p.X + w, p.Y + h);
+
+        // Checkerboard so the alpha is actually legible.
+        const float cell = 8f;
+        for (var y = 0f; y < h; y += cell)
+        {
+            for (var x = 0f; x < w; x += cell)
+            {
+                var odd = ((int)(x / cell) + (int)(y / cell)) % 2 == 1;
+                dl.AddRectFilled(
+                    new Vector2(p.X + x, p.Y + y),
+                    new Vector2(Math.Min(p.X + x + cell, max.X), Math.Min(p.Y + y + cell, max.Y)),
+                    Theme.U32(odd ? Theme.Line : Theme.Panel, 0.9f));
+            }
+        }
+
+        dl.AddRectFilled(p, max, Theme.U32(Theme.Ink, alpha), Theme.Radius);
+        dl.AddRect(p, max, Theme.U32(Theme.Line), Theme.Radius, ImDrawFlags.None, 1f);
+        dl.AddText(new Vector2(p.X + 12, p.Y + h * 0.5f - ImGui.GetTextLineHeight() * 0.5f),
+            Theme.U32(Theme.Text), "Sample loot row");
+
+        ImGui.Dummy(new Vector2(w, h));
+    }
+
+    private static void DrawRarityLegend()
+    {
+        uint[] rarities = [1, 2, 3, 4, 7];
+        foreach (var r in rarities)
+        {
+            Theme.RarityGem(r, 10f);
+            ImGui.SameLine(0, 5);
+            ImGui.TextColored(Theme.RarityColor(r), Theme.RarityName(r));
+            ImGui.SameLine(0, 14);
+        }
+        ImGui.NewLine();
+    }
+
+    private void DrawEffects()
+    {
+        var config = configService.Configuration;
+
+        Theme.SectionHeader("Tooltips", FontAwesomeIcon.CommentDots);
+
+        var showTooltips = config.ShowTooltips;
+        if (Theme.ToggleRow("Show item tooltips", ref showTooltips,
+                "Reveals rarity, source, zone and roll details when you hover a row."))
+        {
+            config.ShowTooltips = showTooltips;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Drop flourish", FontAwesomeIcon.Magic);
+
+        var enableParticles = config.EnableParticleEffects;
+        if (Theme.ToggleRow("Particle effects", ref enableParticles,
+                "Bursts of light when an item drops, coloured by its rarity."))
+        {
+            config.EnableParticleEffects = enableParticles;
+            configService.Save();
+        }
+
+        if (config.EnableParticleEffects)
+        {
+            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Indent(10);
+
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "Intensity");
+            ImGui.SameLine(0, 6);
+            Theme.HelpMarker("Scales how many particles each drop spawns. 0 is minimal, 2 is maximum.");
+            ImGui.SameLine(0, 14);
+
+            var particleIntensity = config.ParticleIntensity;
+            if (Theme.Slider("##ParticleIntensity", ref particleIntensity, 0.0f, 2.0f, "%.1f", 210f))
+            {
+                config.ParticleIntensity = particleIntensity;
+                configService.Save();
+            }
+
+            ImGui.Dummy(new Vector2(0, 4));
+            Theme.Meter(config.ParticleIntensity / 2f, 210f, 6f,
+                config.ParticleIntensity > 1.4f ? Theme.Warn : Theme.Gold);
+
+            ImGui.Unindent(10);
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.Feather, "Performance",
+            "Effects are drawn entirely in the overlay and never touch the game's renderer. Lower the intensity if your frame time is tight.",
+            Theme.Crystal);
+    }
+
+    private void DrawHistory()
+    {
+        var config = configService.Configuration;
+        var history = plugin.HistoryService.GetHistory();
+
+        Theme.SectionHeader("Storage", FontAwesomeIcon.Database);
+
+        var enableHistory = config.EnableHistoryTracking;
+        if (Theme.ToggleRow("Keep a permanent history", ref enableHistory,
+                "Saves every tracked item to disk so statistics survive restarts."))
+        {
+            config.EnableHistoryTracking = enableHistory;
+            configService.Save();
+        }
+
+        if (config.EnableHistoryTracking)
+        {
+            ImGui.Indent(10);
+
+            var autoSave = config.EnableHistoryAutoSave;
+            if (Theme.ToggleRow("Auto-save every 5 minutes", ref autoSave,
+                    "Writes history to disk periodically instead of only on logout."))
+            {
+                config.EnableHistoryAutoSave = autoSave;
+                configService.Save();
+            }
+
+            var saveOnClear = config.SaveToHistoryOnClear;
+            if (Theme.ToggleRow("Save to history when clearing", ref saveOnClear,
+                    "Pushes the current list into history before the Clear button wipes it."))
+            {
+                config.SaveToHistoryOnClear = saveOnClear;
+                configService.Save();
+            }
+
+            ImGui.Unindent(10);
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.SectionHeader("Collection", FontAwesomeIcon.ChartPie);
+
+        var cardWidth = Math.Min((ImGui.GetContentRegionAvail().X - 10) / 2f, 220f);
+        Theme.StatCard(FontAwesomeIcon.Gem, "Items tracked", history.TotalItemsObtained.ToString("N0"), Theme.Gold, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.CalendarAlt, "Days recorded", history.DailyStatistics.Count.ToString("N0"), Theme.Crystal, cardWidth);
+
+        ImGui.Dummy(new Vector2(0, 12));
+        if (Theme.PrimaryButton("Open statistics & history", new Vector2(220, 32)))
+        {
+            plugin.StatisticsWindow.IsOpen = true;
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.ShieldAlt, "Your data stays local",
+            "History lives in your Dalamud config folder and is never uploaded. Export it from Statistics → Export.",
+            Theme.Good);
+    }
+
+    private void DrawAbout()
+    {
+        Theme.SectionHeader("LootView", FontAwesomeIcon.Gem);
+
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, $"Version {Changelog.CurrentVersion}  ·  by GitHixy");
+        ImGui.SameLine(0, 12);
+        if (Theme.GhostButton("What's new", new Vector2(120, 0), Theme.Gold))
+        {
+            plugin.ChangelogWindow.ShowAll();
+        }
+
+        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, 420f));
+        ImGui.TextColored(Theme.Text,
+            "A live loot tracker for Final Fantasy XIV: every drop you and your party earn, " +
+            "with duty statistics, roll results and searchable history.");
+        ImGui.PopTextWrapPos();
+
+        ImGui.Dummy(new Vector2(0, 14));
+        Theme.SectionHeader("Support", FontAwesomeIcon.Heart);
+
+        using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.13f, 0.59f, 0.95f, 0.85f))
+                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.20f, 0.68f, 1.0f, 1.0f))
+                   .Push(ImGuiCol.ButtonActive, new Vector4(0.10f, 0.50f, 0.85f, 1.0f))
+                   .Push(ImGuiCol.Text, Theme.Text))
+        {
+            if (ImGui.Button("Buy me a coffee on Ko-fi", new Vector2(230, 34)))
+                OpenUrl("https://ko-fi.com/hixyllian");
+        }
+
+        ImGui.SameLine(0, 10);
+        if (Theme.GhostButton("GitHub", new Vector2(110, 34)))
+            OpenUrl("https://github.com/GitHixy/LootView");
+
+        ImGui.Dummy(new Vector2(0, 14));
+        Theme.SectionHeader("Shortcuts", FontAwesomeIcon.Keyboard);
+
+        ShortcutRow("/lv", "Toggle the loot overlay");
+        ShortcutRow("/lv config", "Open these settings");
+        ShortcutRow("Right-click a row", "Blacklist or copy an item");
+    }
+
+    private static void ShortcutRow(string command, string description)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var p = ImGui.GetCursorScreenPos();
+        var ts = ImGui.CalcTextSize(command);
+
+        dl.AddRectFilled(p, new Vector2(p.X + ts.X + 14, p.Y + ts.Y + 5), Theme.U32(Theme.Panel, 0.95f), 4f);
+        dl.AddRect(p, new Vector2(p.X + ts.X + 14, p.Y + ts.Y + 5), Theme.U32(Theme.Line), 4f, ImDrawFlags.None, 1f);
+        dl.AddText(new Vector2(p.X + 7, p.Y + 2.5f), Theme.U32(Theme.GoldBright), command);
+
+        ImGui.Dummy(new Vector2(Math.Max(ts.X + 14, 130f), ts.Y + 5));
+        ImGui.SameLine(0, 12);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, description);
+        ImGui.Dummy(new Vector2(0, 2));
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Failed to open {Url}", url);
         }
     }
 }

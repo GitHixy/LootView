@@ -2,23 +2,39 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Linq;
-using System.IO;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
 using LootView.Models;
+using LootView.UI;
 
 namespace LootView.Windows;
 
 public class StatisticsWindow : Window
 {
-    private Plugin plugin;
-    private LootStatistics cachedStats;
-    private DateTime lastStatsUpdate = DateTime.MinValue;
+    private readonly Plugin plugin;
+
+    private int tab;
+
+    /// <summary>History size this frame; every cache key includes it.</summary>
+    private int itemCount;
+
+    // Everything expensive is computed on the thread pool. The window keeps drawing the
+    // previous result while a new one is in flight, so opening this window - or changing a
+    // filter - never blocks the game.
+    private readonly AsyncValue<LootStatistics> statsAsync = new("overview statistics");
+    private readonly AsyncValue<List<LootItem>> historyAsync = new("history filter");
+    private readonly AsyncValue<LootStatistics> currentPeriodAsync = new("current period");
+    private readonly AsyncValue<LootStatistics> previousPeriodAsync = new("previous period");
+    private readonly AsyncValue<Dictionary<uint, DutyStatistics>> dutyStatsAsync = new("duty statistics");
+    private readonly AsyncValue<List<DutyRun>> recentRunsAsync = new("recent duty runs");
+    private readonly AsyncValue<List<DutyRun>> bestRunsAsync = new("best runs");
+    private readonly AsyncValue<List<DutyRun>> fastestRunsAsync = new("fastest runs");
+
     private DateTime statsStartDate = DateTime.Now.AddDays(-30);
     private DateTime statsEndDate = DateTime.Now;
     private int dateRangeOption = 3; // 0=Today, 1=Week, 2=Month, 3=All Time
-    
+
     // For history browser
     private string searchQuery = "";
     private uint filterRarity = 999; // 999 = all
@@ -26,391 +42,446 @@ public class StatisticsWindow : Window
     private bool filterOwnLootOnly = false;
     private bool filterHQOnly = false;
     private int historyPage = 0;
-    private const int itemsPerPage = 50;
-    private string sortColumn = "Timestamp";
-    private bool sortDescending = true;
-    
-    // Cache for filtered history to prevent recalculating every frame
-    private List<LootItem> cachedFilteredItems = null;
-    private string lastSearchQuery = "";
-    private uint lastFilterRarity = 999;
-    private string lastFilterZone = "";
-    private bool lastFilterOwnLootOnly = false;
-    private bool lastFilterHQOnly = false;
-    private string lastSortColumn = "Timestamp";
-    private bool lastSortDescending = true;
-    private DateTime lastHistoryUpdate = DateTime.MinValue;
-    
+    private const int ItemsPerPage = 50;
+    private readonly string sortColumn = "Timestamp";
+    private readonly bool sortDescending = true;
+
     // Icon texture cache to prevent loading the same icon multiple times
-    private Dictionary<uint, Dalamud.Interface.Textures.ISharedImmediateTexture> iconCache = new();
-    
+    private readonly Dictionary<uint, Dalamud.Interface.Textures.ISharedImmediateTexture> iconCache = new();
+
     // For analytics
     private int comparisonDays = 7;
-    private LootStatistics cachedCurrentStats = null;
-    private LootStatistics cachedPreviousStats = null;
-    private int lastComparisonDays = 7;
-    private DateTime lastAnalyticsUpdate = DateTime.MinValue;
 
     // For duty tracker
-    private string selectedContentType = "All";
+    private int dutyTypeFilter;
+    private int dutyView; // 0 = leaderboard, 1 = recent runs, 2 = best runs
     private uint selectedDutyId = 0;
-    private Dictionary<uint, DutyStatistics> cachedDutyStats = null;
-    private List<DutyRun> cachedRecentRuns = null;
-    private DateTime lastDutyStatsUpdate = DateTime.MinValue;
+
+    private static readonly string[] DutyTypes = ["All", "Dungeon", "Trial", "Raid", "Alliance Raid"];
 
     // For zone finder
     private string zoneSearchQuery = "";
     private List<ZoneSearchResult> zoneSearchResults = new();
     private bool zoneSearchPerformed = false;
-    private uint selectedZoneForLootTable = 0;
-    private string selectedZoneName = "";
 
-    public StatisticsWindow(Plugin plugin) : base("Loot Statistics & History###LootView_Statistics")
+    private static readonly (FontAwesomeIcon, string)[] Tabs =
+    [
+        (FontAwesomeIcon.ChartPie, "Overview"),
+        (FontAwesomeIcon.Book, "History"),
+        (FontAwesomeIcon.ChartLine, "Trends"),
+        (FontAwesomeIcon.Calculator, "Analytics"),
+        (FontAwesomeIcon.Flag, "Duties"),
+        (FontAwesomeIcon.Search, "Zone Finder"),
+        (FontAwesomeIcon.Ban, "Blacklist"),
+        (FontAwesomeIcon.Download, "Export"),
+    ];
+
+    public StatisticsWindow(Plugin plugin) : base("Loot Statistics###LootView_Statistics")
     {
         this.plugin = plugin;
-        
-        Size = new Vector2(800, 600);
-        SizeConstraintMin = new Vector2(600, 400);
+
+        Size = new Vector2(940, 660);
+        SizeConstraintMin = new Vector2(760, 520);
+        SizeConstraintMax = new Vector2(1900, 1300);
+        WindowFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
     }
 
     protected override void DrawContents()
     {
-        // Apply background alpha from configuration
-        BgAlpha = plugin.Configuration.BackgroundAlpha;
-        
-        // Only refresh stats if cache is null (first open)
-        if (cachedStats == null)
+        BgAlpha = Math.Max(plugin.Configuration.BackgroundAlpha, 0.85f);
+
+        // Read once per frame: every cache key below is keyed on it, so a new drop
+        // invalidates exactly the views that depend on the history.
+        itemCount = plugin.HistoryService.ItemCount;
+
+        RequestOverviewStatistics();
+
+        var history = plugin.HistoryService.GetHistory();
+
+        Theme.WindowHeader(FontAwesomeIcon.ChartPie, "Statistics & History",
+            $"{history.TotalItemsObtained:N0} items recorded across {history.DailyStatistics.Count:N0} days",
+            () =>
+            {
+                var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
+                ImGui.SetCursorPosX(right - 30f);
+                if (Theme.IconButton("##RefreshStats", FontAwesomeIcon.Sync, "Recalculate statistics", Theme.Crystal))
+                {
+                    InvalidateAll();
+                }
+            });
+
+        Theme.TabStrip("##StatsTabs", ref tab, Tabs);
+        ImGui.Dummy(new Vector2(0, 6));
+
+        using var content = Theme.Region("##StatsContent", ImGui.GetContentRegionAvail());
+        if (!content) return;
+
+        switch (tab)
         {
-            RefreshStatistics();
-        }
-
-        if (cachedStats == null)
-        {
-            ImGui.Text("Loading statistics...");
-            return;
-        }
-
-        DrawTabs();
-    }
-
-    private void DrawTabs()
-    {
-        if (ImGui.BeginTabBar("StatisticsTabs", ImGuiTabBarFlags.None))
-        {
-            // Overview Tab
-            var overviewOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.ChartPie.ToIconString()} Overview##OverviewTab");
-            if (overviewOpen)
-            {
-                if (ImGui.BeginChild("OverviewContent", new Vector2(0, 0), false))
-                {
-                    DrawOverviewTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // History Tab
-            var historyOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Book.ToIconString()} History##HistoryTab");
-            if (historyOpen)
-            {
-                if (ImGui.BeginChild("HistoryContent", new Vector2(0, 0), false))
-                {
-                    DrawHistoryTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Trends Tab
-            var trendsOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.ChartLine.ToIconString()} Trends##TrendsTab");
-            if (trendsOpen)
-            {
-                if (ImGui.BeginChild("TrendsContent", new Vector2(0, 0), false))
-                {
-                    DrawTrendsTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Analytics Tab
-            var analyticsOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Calculator.ToIconString()} Analytics##AnalyticsTab");
-            if (analyticsOpen)
-            {
-                if (ImGui.BeginChild("AnalyticsContent", new Vector2(0, 0), false))
-                {
-                    DrawAnalyticsTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Duty Tracker Tab
-            var dutyOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Flag.ToIconString()} Duty Tracker##DutyTrackerTab");
-            if (dutyOpen)
-            {
-                if (ImGui.BeginChild("DutyTrackerContent", new Vector2(0, 0), false))
-                {
-                    DrawDutyTrackerTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Zone Finder Tab
-            var zoneFinderOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Search.ToIconString()} Zone Finder##ZoneFinderTab");
-            if (zoneFinderOpen)
-            {
-                if (ImGui.BeginChild("ZoneFinderContent", new Vector2(0, 0), false))
-                {
-                    DrawZoneFinderTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Blacklist Tab
-            var blacklistOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Ban.ToIconString()} Blacklist##BlacklistTab");
-            if (blacklistOpen)
-            {
-                if (ImGui.BeginChild("BlacklistContent", new Vector2(0, 0), false))
-                {
-                    DrawBlacklistTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            // Export Tab
-            var exportOpen = ImGui.BeginTabItem($"{FontAwesomeIcon.Download.ToIconString()} Export##ExportTab");
-            if (exportOpen)
-            {
-                if (ImGui.BeginChild("ExportContent", new Vector2(0, 0), false))
-                {
-                    DrawExportTab();
-                    ImGui.EndChild();
-                }
-                ImGui.EndTabItem();
-            }
-
-            ImGui.EndTabBar();
+            case 0: DrawOverviewTab(); break;
+            case 1: DrawHistoryTab(); break;
+            case 2: DrawTrendsTab(); break;
+            case 3: DrawAnalyticsTab(); break;
+            case 4: DrawDutyTrackerTab(); break;
+            case 5: DrawZoneFinderTab(); break;
+            case 6: DrawBlacklistTab(); break;
+            case 7: DrawExportTab(); break;
         }
     }
+
+    // ==================================================================
+    // OVERVIEW
+    // ==================================================================
 
     private void DrawOverviewTab()
     {
-        if (cachedStats == null) return;
-
-        ImGui.Spacing();
-        
-        // Date range selector with better layout
-        ImGui.AlignTextToFramePadding();
-        ImGui.Text("Date Range:");
-        ImGui.SameLine();
-        if (ImGui.RadioButton("Today", ref dateRangeOption, 0)) UpdateDateRange();
-        ImGui.SameLine();
-        if (ImGui.RadioButton("Week", ref dateRangeOption, 1)) UpdateDateRange();
-        ImGui.SameLine();
-        if (ImGui.RadioButton("Month", ref dateRangeOption, 2)) UpdateDateRange();
-        ImGui.SameLine();
-        if (ImGui.RadioButton("All Time", ref dateRangeOption, 3)) UpdateDateRange();
-        ImGui.SameLine();
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 20);
-        if (ImGui.Button("Refresh", new Vector2(100, 0)))
+        if (statsAsync.IsFirstLoad)
         {
-            RefreshStatistics();
+            DrawLoading("Crunching your loot history...");
+            return;
         }
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        var cachedStats = statsAsync.Value;
+        if (cachedStats == null) return;
 
-        // Overall Statistics
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Overall Statistics");
-        ImGui.Spacing();
-
-        DrawStatBox("Total Items", cachedStats.TotalItems.ToString("N0"), new Vector4(0.4f, 0.8f, 0.4f, 1.0f));
-        ImGui.SameLine();
-        DrawStatBox("Unique Items", cachedStats.TotalUnique.ToString("N0"), new Vector4(0.8f, 0.6f, 0.3f, 1.0f));
-        ImGui.SameLine();
-        DrawStatBox("HQ Items", $"{cachedStats.TotalHQ} ({cachedStats.HQPercentage:F1}%)", new Vector4(0.9f, 0.7f, 0.2f, 1.0f));
-        ImGui.SameLine();
-        DrawStatBox("Items/Day", cachedStats.ItemsPerDay.ToString("F1"), new Vector4(0.5f, 0.5f, 0.9f, 1.0f));
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Two columns layout
-        if (ImGui.BeginTable("OverviewTable", 2, ImGuiTableFlags.None))
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, "Range");
+        ImGui.SameLine(0, 10);
+        if (Theme.SegmentedControl("##DateRange", ref dateRangeOption, "Today", "This week", "This month", "All time"))
         {
-            ImGui.TableSetupColumn("Left", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Right", ImGuiTableColumnFlags.WidthStretch);
+            UpdateDateRange();
+        }
 
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
+        if (statsAsync.IsLoading)
+        {
+            ImGui.SameLine(0, 12);
+            DrawWorkingBadge();
+        }
 
-            // Rarity Breakdown
-            ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Rarity Breakdown");
-            ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 10));
+
+        // --- Headline metrics -----------------------------------------
+        var cardWidth = (ImGui.GetContentRegionAvail().X - 30) / 4f;
+        Theme.StatCard(FontAwesomeIcon.Gem, "Total items", cachedStats.TotalItems.ToString("N0"), Theme.Gold, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.Fingerprint, "Unique items", cachedStats.TotalUnique.ToString("N0"), Theme.Crystal, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.Star, "High quality", $"{cachedStats.TotalHQ:N0}", Theme.Warn, cardWidth,
+            $"{cachedStats.HQPercentage:F1}% of everything in this range");
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.TachometerAlt, "Items / day", cachedStats.ItemsPerDay.ToString("F1"), Theme.Good, cardWidth);
+
+        ImGui.Dummy(new Vector2(0, 14));
+
+        // --- Rarity split + streaks -----------------------------------
+        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
+
+        using (Theme.Card("##RarityPanel", new Vector2(half, 210), true, Theme.Crystal))
+        {
+            Theme.SectionHeader("Rarity split", FontAwesomeIcon.Gem);
 
             if (cachedStats.ByRarity.Any())
             {
-                foreach (var rarityKv in cachedStats.ByRarity.OrderByDescending(kv => kv.Key))
-                {
-                    var rarityStats = rarityKv.Value;
-                    var color = GetRarityColor(rarityStats.Rarity);
-                    var rarityName = GetRarityName(rarityStats.Rarity);
+                var slices = cachedStats.ByRarity
+                    .OrderByDescending(kv => kv.Key)
+                    .Select(kv => (Theme.RarityName(kv.Key), (double)kv.Value.Count, Theme.RarityColor(kv.Key)))
+                    .ToList();
 
-                    ImGui.TextColored(color, $"{rarityName}:");
-                    ImGui.SameLine(150);
-                    ImGui.Text($"{rarityStats.Count} ({rarityStats.Percentage:F1}%)");
-                    
-                    if (rarityStats.HQCount > 0)
-                    {
-                        ImGui.SameLine();
-                        ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1.0f), $"[{rarityStats.HQCount} HQ]");
-                    }
+                Charts.Donut(slices, 55f, "items", cachedStats.TotalItems.ToString("N0"));
+
+                ImGui.SameLine(0, 16);
+                ImGui.BeginGroup();
+                foreach (var kv in cachedStats.ByRarity.OrderByDescending(k => k.Key))
+                {
+                    Theme.RarityGem(kv.Key, 9f);
+                    ImGui.SameLine(0, 6);
+                    ImGui.TextColored(Theme.RarityColor(kv.Key), Theme.RarityName(kv.Key));
+                    ImGui.SameLine(112);
+                    ImGui.TextColored(Theme.Text, $"{kv.Value.Count:N0}");
+                    ImGui.SameLine(168);
+                    ImGui.TextColored(Theme.TextFaint, $"{kv.Value.Percentage:F1}%");
                 }
+                ImGui.EndGroup();
             }
             else
             {
-                ImGui.TextDisabled("No items found in this range");
+                ImGui.TextColored(Theme.TextFaint, "No items in this range");
             }
 
-            ImGui.Spacing();
-            ImGui.Spacing();
+        }
 
-            // Play Streaks
-            ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Play Streaks");
-            ImGui.Spacing();
-            ImGui.Text($"Current Streak: {cachedStats.CurrentStreak} days");
-            ImGui.Text($"Longest Streak: {cachedStats.LongestStreak} days");
-            ImGui.Text($"Days Played: {cachedStats.DaysPlayed}");
+        ImGui.SameLine(0, 12);
+
+        using (Theme.Card("##StreakPanel", new Vector2(half, 210), true, Theme.Gold))
+        {
+            Theme.SectionHeader("Play streaks", FontAwesomeIcon.Fire);
+
+            MetricLine(FontAwesomeIcon.Fire, "Current streak", Days(cachedStats.CurrentStreak), Theme.Gold);
+            MetricLine(FontAwesomeIcon.Trophy, "Longest streak", Days(cachedStats.LongestStreak), Theme.Warn);
+            MetricLine(FontAwesomeIcon.CalendarCheck, "Days played", $"{cachedStats.DaysPlayed}", Theme.Crystal);
+
+            if (cachedStats.LongestStreak > 0)
+            {
+                ImGui.Dummy(new Vector2(0, 8));
+                Theme.Meter(cachedStats.CurrentStreak / (float)Math.Max(cachedStats.LongestStreak, 1),
+                    ImGui.GetContentRegionAvail().X, 8f, Theme.Gold);
+            }
 
             if (cachedStats.FirstItemDate.HasValue && cachedStats.LastItemDate.HasValue)
             {
-                ImGui.Spacing();
-                ImGui.TextDisabled($"First item: {cachedStats.FirstItemDate.Value:yyyy-MM-dd}");
-                ImGui.TextDisabled($"Latest item: {cachedStats.LastItemDate.Value:yyyy-MM-dd HH:mm}");
+                ImGui.Dummy(new Vector2(0, 10));
+                Theme.HairLine();
+                ImGui.Dummy(new Vector2(0, 6));
+                ImGui.TextColored(Theme.TextFaint, $"First item   {cachedStats.FirstItemDate.Value:yyyy-MM-dd}");
+                ImGui.TextColored(Theme.TextFaint, $"Latest item  {cachedStats.LastItemDate.Value:yyyy-MM-dd HH:mm}");
             }
 
-            ImGui.TableNextColumn();
-
-            // Top Zones
-            ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Top Zones");
-            ImGui.Spacing();
-
-            var topZones = cachedStats.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(10);
-            if (topZones.Any())
-            {
-                foreach (var zone in topZones)
-                {
-                    var zoneStats = zone.Value;
-                    ImGui.BulletText($"{zoneStats.ZoneName}");
-                    ImGui.SameLine(250);
-                    ImGui.Text($"{zoneStats.TotalItems} items");
-                    ImGui.SameLine(350);
-                    ImGui.TextDisabled($"({zoneStats.UniqueItems} unique)");
-                }
-            }
-            else
-            {
-                ImGui.TextDisabled("No zone data available");
-            }
-
-            ImGui.EndTable();
         }
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 12));
 
-        // Most Common Items
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Most Common Items");
-        ImGui.Spacing();
+        // --- Top zones -------------------------------------------------
+        Theme.SectionHeader("Top zones", FontAwesomeIcon.MapMarkedAlt);
 
-        if (cachedStats.MostCommonItems.Any())
+        var topZones = cachedStats.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(8).ToList();
+        if (topZones.Count > 0)
         {
-            if (ImGui.BeginTable("CommonItems", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+            var maxZone = topZones.Max(z => z.Value.TotalItems);
+            foreach (var zone in topZones)
             {
-                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 80);
-                ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 60);
-                ImGui.TableSetupColumn("Last Obtained", ImGuiTableColumnFlags.WidthFixed, 150);
-                ImGui.TableHeadersRow();
-
-                foreach (var item in cachedStats.MostCommonItems.Take(10))
-                {
-                    ImGui.TableNextRow();
-                    ImGui.TableNextColumn();
-
-                    DrawItemIcon(item.IconId);
-                    ImGui.SameLine();
-                    ImGui.TextColored(GetRarityColor(item.Rarity), item.ItemName);
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(item.Count.ToString());
-
-                    ImGui.TableNextColumn();
-                    if (item.HQCount > 0)
-                    {
-                        ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1.0f), item.HQCount.ToString());
-                    }
-                    else
-                    {
-                        ImGui.TextDisabled("-");
-                    }
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(item.LastObtained.ToString("MM/dd HH:mm"));
-                }
-
-                ImGui.EndTable();
+                Charts.RankedBar(zone.Value.ZoneName, zone.Value.TotalItems, maxZone, Theme.Crystal, 220f,
+                    $"{zone.Value.TotalItems:N0}");
             }
         }
         else
         {
-            ImGui.TextDisabled("No items to display");
+            ImGui.TextColored(Theme.TextFaint, "No zone data available");
         }
+
+        ImGui.Dummy(new Vector2(0, 12));
+
+        // --- Most common items ----------------------------------------
+        Theme.SectionHeader("Most common items", FontAwesomeIcon.ListOl);
+
+        if (cachedStats.MostCommonItems.Any())
+        {
+            using var table = ImRaii.Table("CommonItems", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV);
+            if (table)
+            {
+                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 80);
+                ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 60);
+                ImGui.TableSetupColumn("Last obtained", ImGuiTableColumnFlags.WidthFixed, 150);
+                ImGui.TableHeadersRow();
+
+                foreach (var item in cachedStats.MostCommonItems.Take(10))
+                {
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+                    ImGui.TableNextColumn();
+
+                    DrawItemIcon(item.IconId);
+                    ImGui.SameLine(0, 8);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.Text, item.Count.ToString("N0"));
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    if (item.HQCount > 0)
+                        ImGui.TextColored(Theme.Warn, item.HQCount.ToString());
+                    else
+                        ImGui.TextColored(Theme.TextFaint, "-");
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.TextMuted, item.LastObtained.ToString("MM/dd HH:mm"));
+                }
+            }
+        }
+        else
+        {
+            ImGui.TextColored(Theme.TextFaint, "No items to display");
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
     }
+
+    /// <summary>"1 day" rather than "1 days".</summary>
+    private static string Days(int count) => count == 1 ? "1 day" : $"{count} days";
+
+    private static void MetricLine(FontAwesomeIcon icon, string label, string value, Vector4 accent)
+    {
+        Theme.Icon(icon, accent);
+        ImGui.SameLine(0, 9);
+        ImGui.TextColored(Theme.TextMuted, label);
+        ImGui.SameLine(150);
+        ImGui.TextColored(Theme.Text, value);
+    }
+
+    // ==================================================================
+    // HISTORY
+    // ==================================================================
 
     private void DrawHistoryTab()
     {
-        ImGui.Spacing();
+        DrawHistoryFilters();
 
-        // Search bar
-        ImGui.AlignTextToFramePadding();
-        ImGui.Text("Search:");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(250);
-        ImGui.InputTextWithHint("##search", "Search item names...", ref searchQuery, 100);
-        
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(180);
-        if (ImGui.BeginCombo("##rarityFilter", filterRarity == 999 ? "All Rarities" : GetRarityName(filterRarity)))
+        RequestFilteredHistory();
+
+        if (historyAsync.IsFirstLoad)
         {
-            if (ImGui.Selectable("All Rarities", filterRarity == 999)) { filterRarity = 999; historyPage = 0; }
+            DrawLoading("Searching your history...");
+            return;
+        }
+
+        var filteredItems = historyAsync.Value ?? new List<LootItem>();
+        var totalPages = Math.Max((int)Math.Ceiling(filteredItems.Count / (double)ItemsPerPage), 1);
+        historyPage = Math.Clamp(historyPage, 0, totalPages - 1);
+
+        // --- Result bar + pagination ----------------------------------
+        ImGui.AlignTextToFramePadding();
+        Theme.Badge($"{filteredItems.Count:N0} results", Theme.Crystal);
+
+        if (historyAsync.IsLoading)
+        {
+            ImGui.SameLine(0, 10);
+            DrawWorkingBadge();
+        }
+
+        if (totalPages > 1)
+        {
+            const float navWidth = 214f;
+            ImGui.SameLine();
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - navWidth, 0));
+
+            if (Theme.IconButton("##FirstPage", FontAwesomeIcon.AngleDoubleLeft, "First page", Theme.Crystal, false, 26f))
+                historyPage = 0;
+            ImGui.SameLine(0, 4);
+            if (Theme.IconButton("##PrevPage", FontAwesomeIcon.AngleLeft, "Previous page", Theme.Crystal, false, 26f) && historyPage > 0)
+                historyPage--;
+
+            ImGui.SameLine(0, 8);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, $"{historyPage + 1} / {totalPages}");
+
+            ImGui.SameLine(0, 8);
+            if (Theme.IconButton("##NextPage", FontAwesomeIcon.AngleRight, "Next page", Theme.Crystal, false, 26f) && historyPage < totalPages - 1)
+                historyPage++;
+            ImGui.SameLine(0, 4);
+            if (Theme.IconButton("##LastPage", FontAwesomeIcon.AngleDoubleRight, "Last page", Theme.Crystal, false, 26f))
+                historyPage = totalPages - 1;
+        }
+
+        ImGui.Dummy(new Vector2(0, 6));
+
+        if (filteredItems.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.Search, "Nothing matches these filters",
+                "Widen your search or clear the filters above.");
+            return;
+        }
+
+        var tableHeight = ImGui.GetContentRegionAvail().Y - 4;
+        using var table = ImRaii.Table("HistoryTable", 6,
+            ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
+            new Vector2(0, tableHeight));
+        if (!table) return;
+
+        ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 50);
+        ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, 130);
+        ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 190);
+        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 100);
+        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 150);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        foreach (var item in filteredItems.Skip(historyPage * ItemsPerPage).Take(ItemsPerPage))
+        {
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+            ImGui.TableNextColumn();
+
+            DrawItemIcon(item.IconId);
+            ImGui.SameLine(0, 8);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
+            if (item.IsHQ)
+            {
+                ImGui.SameLine(0, 6);
+                Theme.Badge("HQ", Theme.Warn);
+            }
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(item.Quantity > 1 ? Theme.CrystalBright : Theme.TextMuted, $"x{item.Quantity}");
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(item.IsOwnLoot ? Theme.Good : Theme.Text, item.PlayerName);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, item.ZoneName);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextFaint, item.Source.ToString());
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, item.Timestamp.ToString("MM/dd HH:mm:ss"));
+        }
+    }
+
+    private void DrawHistoryFilters()
+    {
+        ImGui.AlignTextToFramePadding();
+        Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
+        ImGui.SameLine(0, 8);
+        ImGui.SetNextItemWidth(230);
+        if (ImGui.InputTextWithHint("##search", "Search item names", ref searchQuery, 100))
+            historyPage = 0;
+
+        ImGui.SameLine(0, 8);
+        ImGui.SetNextItemWidth(170);
+        if (ImGui.BeginCombo("##rarityFilter", filterRarity == 999 ? "All rarities" : Theme.RarityName(filterRarity)))
+        {
+            if (ImGui.Selectable("All rarities", filterRarity == 999)) { filterRarity = 999; historyPage = 0; }
             ImGui.Separator();
-            if (ImGui.Selectable("Common (1)", filterRarity == 1)) { filterRarity = 1; historyPage = 0; }
-            if (ImGui.Selectable("Uncommon (2)", filterRarity == 2)) { filterRarity = 2; historyPage = 0; }
-            if (ImGui.Selectable("Rare (3)", filterRarity == 3)) { filterRarity = 3; historyPage = 0; }
-            if (ImGui.Selectable("Rare+ (4)", filterRarity == 4)) { filterRarity = 4; historyPage = 0; }
-            if (ImGui.Selectable("Legendary (7)", filterRarity == 7)) { filterRarity = 7; historyPage = 0; }
+            foreach (uint r in (uint[])[1, 2, 3, 4, 7])
+            {
+                Theme.RarityGem(r, 9f);
+                ImGui.SameLine(0, 6);
+                if (ImGui.Selectable(Theme.RarityName(r), filterRarity == r)) { filterRarity = r; historyPage = 0; }
+            }
             ImGui.EndCombo();
         }
 
-        ImGui.SameLine();
+        ImGui.SameLine(0, 8);
         ImGui.SetNextItemWidth(180);
-        ImGui.InputTextWithHint("##zoneFilter", "Filter by zone...", ref filterZone, 100);
+        if (ImGui.InputTextWithHint("##zoneFilter", "Filter by zone", ref filterZone, 100))
+            historyPage = 0;
 
-        // Second row of filters
-        ImGui.Checkbox("HQ Only", ref filterHQOnly);
-        ImGui.SameLine();
-        ImGui.Checkbox("Own Loot Only", ref filterOwnLootOnly);
-        ImGui.SameLine();
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 20);
-        if (ImGui.Button("🗑️ Clear All Filters"))
+        ImGui.Dummy(new Vector2(0, 4));
+
+        var hq = filterHQOnly;
+        if (Theme.Toggle("##HQOnly", ref hq)) { filterHQOnly = hq; historyPage = 0; }
+        ImGui.SameLine(0, 8);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(filterHQOnly ? Theme.Warn : Theme.TextMuted, "HQ only");
+
+        ImGui.SameLine(0, 22);
+        var own = filterOwnLootOnly;
+        if (Theme.Toggle("##OwnOnly", ref own)) { filterOwnLootOnly = own; historyPage = 0; }
+        ImGui.SameLine(0, 8);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(filterOwnLootOnly ? Theme.Good : Theme.TextMuted, "My loot only");
+
+        ImGui.SameLine(0, 22);
+        if (Theme.GhostButton("Reset filters", new Vector2(120, 0), Theme.Bad))
         {
             searchQuery = "";
             filterZone = "";
@@ -420,1122 +491,968 @@ public class StatisticsWindow : Window
             historyPage = 0;
         }
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Check if we need to recalculate the filtered items
-        var history = plugin.HistoryService.GetHistory();
-        bool filtersChanged = searchQuery != lastSearchQuery ||
-                             filterRarity != lastFilterRarity ||
-                             filterZone != lastFilterZone ||
-                             filterHQOnly != lastFilterHQOnly ||
-                             filterOwnLootOnly != lastFilterOwnLootOnly ||
-                             sortColumn != lastSortColumn ||
-                             sortDescending != lastSortDescending ||
-                             cachedFilteredItems == null ||
-                             (DateTime.Now - lastHistoryUpdate).TotalSeconds > 5; // Refresh every 5 seconds
-
-        if (filtersChanged)
-        {
-            // Update cache tracking variables
-            lastSearchQuery = searchQuery;
-            lastFilterRarity = filterRarity;
-            lastFilterZone = filterZone;
-            lastFilterHQOnly = filterHQOnly;
-            lastFilterOwnLootOnly = filterOwnLootOnly;
-            lastSortColumn = sortColumn;
-            lastSortDescending = sortDescending;
-            lastHistoryUpdate = DateTime.Now;
-
-            // Recalculate filtered items
-            var items = history.AllItems.AsEnumerable();
-
-            // Apply all filters
-            if (!string.IsNullOrWhiteSpace(searchQuery))
-            {
-                items = items.Where(i => i.ItemName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
-            }
-            if (filterRarity != 999)
-            {
-                items = items.Where(i => i.Rarity == filterRarity);
-            }
-            if (!string.IsNullOrWhiteSpace(filterZone))
-            {
-                items = items.Where(i => i.ZoneName.Contains(filterZone, StringComparison.OrdinalIgnoreCase));
-            }
-            if (filterHQOnly)
-            {
-                items = items.Where(i => i.IsHQ);
-            }
-            if (filterOwnLootOnly)
-            {
-                items = items.Where(i => i.IsOwnLoot);
-            }
-
-            // Apply sorting and cache the result
-            cachedFilteredItems = sortColumn switch
-            {
-                "ItemName" => sortDescending ? items.OrderByDescending(i => i.ItemName).ToList() : items.OrderBy(i => i.ItemName).ToList(),
-                "Rarity" => sortDescending ? items.OrderByDescending(i => i.Rarity).ToList() : items.OrderBy(i => i.Rarity).ToList(),
-                "Zone" => sortDescending ? items.OrderByDescending(i => i.ZoneName).ToList() : items.OrderBy(i => i.ZoneName).ToList(),
-                _ => sortDescending ? items.OrderByDescending(i => i.Timestamp).ToList() : items.OrderBy(i => i.Timestamp).ToList()
-            };
-        }
-
-        var filteredItems = cachedFilteredItems ?? new List<LootItem>();
-        var totalPages = (int)Math.Ceiling(filteredItems.Count / (double)itemsPerPage);
-
-        // Results info and pagination
-        ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1.0f), $"📋 {filteredItems.Count:N0} items found");
-        
-        if (totalPages > 1)
-        {
-            ImGui.SameLine();
-            ImGui.SetCursorPosX(ImGui.GetWindowWidth() - 300);
-            if (ImGui.Button("⏮️ First")) historyPage = 0;
-            ImGui.SameLine();
-            if (ImGui.Button("◀ Prev") && historyPage > 0) historyPage--;
-            ImGui.SameLine();
-            ImGui.Text($"Page {historyPage + 1} / {totalPages}");
-            ImGui.SameLine();
-            if (ImGui.Button("Next ▶") && historyPage < totalPages - 1) historyPage++;
-            ImGui.SameLine();
-            if (ImGui.Button("Last ⏭️")) historyPage = totalPages - 1;
-        }
-
-        ImGui.Spacing();
-
-        // History table with sortable columns
-        var tableHeight = ImGui.GetContentRegionAvail().Y;
-        if (ImGui.BeginTable("HistoryTable", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable, new Vector2(0, tableHeight)))
-        {
-            ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch, 0, 0);
-            ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 50, 1);
-            ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, 120, 2);
-            ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 180, 3);
-            ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 90, 4);
-            ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 140, 5);
-            ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 70, 6);
-            ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableHeadersRow();
-
-            var pageItems = filteredItems.Skip(historyPage * itemsPerPage).Take(itemsPerPage);
-            foreach (var item in pageItems)
-            {
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-
-                DrawItemIcon(item.IconId);
-                ImGui.SameLine();
-                ImGui.TextColored(GetRarityColor(item.Rarity), item.ItemName);
-                if (item.IsHQ)
-                {
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1.0f), "[HQ]");
-                }
-
-                ImGui.TableNextColumn();
-                ImGui.Text(item.Quantity.ToString());
-
-                ImGui.TableNextColumn();
-                if (item.IsOwnLoot)
-                {
-                    ImGui.TextColored(new Vector4(0.3f, 1.0f, 0.3f, 1.0f), item.PlayerName);
-                }
-                else
-                {
-                    ImGui.Text(item.PlayerName);
-                }
-
-                ImGui.TableNextColumn();
-                ImGui.TextDisabled(item.ZoneName);
-
-                ImGui.TableNextColumn();
-                ImGui.Text(item.Source.ToString());
-
-                ImGui.TableNextColumn();
-                ImGui.Text(item.Timestamp.ToString("MM/dd HH:mm:ss"));
-
-                ImGui.TableNextColumn();
-                ImGui.TextDisabled(item.ItemId.ToString());
-            }
-
-            ImGui.EndTable();
-        }
+        Theme.Rule(6f);
     }
+
+    // ==================================================================
+    // TRENDS
+    // ==================================================================
 
     private void DrawTrendsTab()
     {
+        if (statsAsync.IsFirstLoad)
+        {
+            DrawLoading("Crunching your loot history...");
+            return;
+        }
+
+        var cachedStats = statsAsync.Value;
         if (cachedStats == null) return;
 
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Daily Activity");
-        ImGui.Spacing();
+        Theme.SectionHeader("Daily activity", FontAwesomeIcon.CalendarAlt);
+        ImGui.TextColored(Theme.TextFaint, "Items obtained over the last two weeks");
+        ImGui.Dummy(new Vector2(0, 8));
 
-        // Daily chart (simplified text representation)
-        var recentDays = cachedStats.DailyItems.OrderByDescending(d => d.Key).Take(14).Reverse();
-        if (recentDays.Any())
-        {
-            var maxItems = recentDays.Max(d => d.Value);
-            
-            foreach (var day in recentDays)
-            {
-                var barLength = maxItems > 0 ? (int)((day.Value / (float)maxItems) * 40) : 0;
-                var bar = new string('█', barLength);
-                
-                ImGui.Text($"{day.Key:MM/dd}");
-                ImGui.SameLine(80);
-                ImGui.TextColored(new Vector4(0.4f, 0.8f, 0.4f, 1.0f), bar);
-                ImGui.SameLine();
-                ImGui.Text($"{day.Value} items");
-            }
-        }
-        else
-        {
-            ImGui.TextDisabled("No daily data available");
-        }
+        var recentDays = cachedStats.DailyItems
+            .OrderByDescending(d => d.Key)
+            .Take(14)
+            .Reverse()
+            .Select(d => new Charts.Bar(d.Key.ToString("MM/dd"), d.Value, $"{d.Key:dddd, dd MMM}\n{d.Value:N0} items"))
+            .ToList();
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        Charts.Columns("##DailyChart", recentDays, 150f, Theme.Gold);
 
-        // Hourly distribution
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Hourly Activity Pattern");
-        ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 16));
+        Theme.SectionHeader("Hourly pattern", FontAwesomeIcon.Clock);
+        ImGui.TextColored(Theme.TextFaint, "When during the day you tend to pick things up");
+        ImGui.Dummy(new Vector2(0, 8));
 
-        if (cachedStats.HourlyItems.Any())
-        {
-            var maxHourly = cachedStats.HourlyItems.Max(h => h.Value);
-            
-            for (int hour = 0; hour < 24; hour++)
-            {
-                var count = cachedStats.HourlyItems.ContainsKey(hour) ? cachedStats.HourlyItems[hour] : 0;
-                var barLength = maxHourly > 0 ? (int)((count / (float)maxHourly) * 30) : 0;
-                var bar = new string('█', barLength);
-                
-                ImGui.Text($"{hour:D2}:00");
-                ImGui.SameLine(60);
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.9f, 1.0f), bar);
-                ImGui.SameLine();
-                ImGui.Text($"{count}");
-            }
-        }
-        else
-        {
-            ImGui.TextDisabled("No hourly data available");
-        }
+        var hourly = Enumerable.Range(0, 24)
+            .Select(h => new Charts.Bar(
+                h % 3 == 0 ? $"{h:D2}" : " ",
+                cachedStats.HourlyItems.TryGetValue(h, out var v) ? v : 0,
+                $"{h:D2}:00 - {h:D2}:59\n{(cachedStats.HourlyItems.TryGetValue(h, out var c) ? c : 0):N0} items"))
+            .ToList();
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        Charts.Columns("##HourlyChart", hourly, 130f, Theme.Crystal);
 
-        // Rarest Items
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Rarest Items Obtained");
-        ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 16));
+        Theme.SectionHeader("Rarest finds", FontAwesomeIcon.Award);
+        ImGui.Dummy(new Vector2(0, 4));
 
         if (cachedStats.RarestItems.Any())
         {
-            if (ImGui.BeginTable("RarestItems", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+            using var table = ImRaii.Table("RarestItems", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV);
+            if (table)
             {
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 80);
-                ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 150);
+                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 110);
+                ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 190);
                 ImGui.TableSetupColumn("Obtained", ImGuiTableColumnFlags.WidthFixed, 140);
                 ImGui.TableHeadersRow();
 
                 foreach (var item in cachedStats.RarestItems.Take(15))
                 {
-                    ImGui.TableNextRow();
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
                     ImGui.TableNextColumn();
 
                     DrawItemIcon(item.IconId);
-                    ImGui.SameLine();
-                    ImGui.TextColored(GetRarityColor(item.Rarity), item.ItemName);
+                    ImGui.SameLine(0, 8);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
                     if (item.IsHQ)
                     {
-                        ImGui.SameLine();
-                        ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1.0f), "[HQ]");
+                        ImGui.SameLine(0, 6);
+                        Theme.Badge("HQ", Theme.Warn);
                     }
 
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(GetRarityColor(item.Rarity), GetRarityName(item.Rarity));
+                    ImGui.AlignTextToFramePadding();
+                    Theme.Badge(Theme.RarityName(item.Rarity), Theme.RarityColor(item.Rarity));
 
                     ImGui.TableNextColumn();
-                    ImGui.TextDisabled(item.ZoneName);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.TextMuted, item.ZoneName);
 
                     ImGui.TableNextColumn();
-                    ImGui.Text(item.Timestamp.ToString("MM/dd HH:mm"));
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.TextFaint, item.Timestamp.ToString("MM/dd HH:mm"));
                 }
-
-                ImGui.EndTable();
-            }
-        }
-    }
-
-    private void DrawAnalyticsTab()
-    {
-        if (cachedStats == null) return;
-
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Advanced Analytics");
-        ImGui.Spacing();
-        ImGui.TextWrapped("Deep dive into your loot patterns and trends.");
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Comparison Period Selector
-        ImGui.AlignTextToFramePadding();
-        ImGui.Text("Compare with:");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(150);
-        if (ImGui.SliderInt("##comparisonDays", ref comparisonDays, 1, 30))
-        {
-            // Trigger recalculation if needed
-        }
-        ImGui.SameLine();
-        ImGui.Text($"days ago");
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Calculate comparison statistics (cached to prevent recalculating every frame)
-        var currentPeriodEnd = DateTime.Now;
-        var currentPeriodStart = currentPeriodEnd.AddDays(-comparisonDays);
-        var previousPeriodEnd = currentPeriodStart;
-        var previousPeriodStart = previousPeriodEnd.AddDays(-comparisonDays);
-
-        // Only recalculate if comparison days changed or cache is stale (5 seconds)
-        if (cachedCurrentStats == null || cachedPreviousStats == null || 
-            comparisonDays != lastComparisonDays ||
-            (DateTime.Now - lastAnalyticsUpdate).TotalSeconds > 5)
-        {
-            Plugin.Log.Info("Recalculating analytics comparison (expensive)");
-            cachedCurrentStats = plugin.HistoryService.CalculateStatistics(currentPeriodStart, currentPeriodEnd);
-            cachedPreviousStats = plugin.HistoryService.CalculateStatistics(previousPeriodStart, previousPeriodEnd);
-            lastComparisonDays = comparisonDays;
-            lastAnalyticsUpdate = DateTime.Now;
-        }
-
-        var currentStats = cachedCurrentStats;
-        var previousStats = cachedPreviousStats;
-
-        // Items Comparison
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Items Obtained");
-        ImGui.Spacing();
-        
-        DrawComparisonMetric("Total Items", currentStats.TotalItems, previousStats.TotalItems);
-        DrawComparisonMetric("Unique Items", currentStats.TotalUnique, previousStats.TotalUnique);
-        DrawComparisonMetric("HQ Items", currentStats.TotalHQ, previousStats.TotalHQ);
-        DrawComparisonMetric("Items/Day", (int)currentStats.ItemsPerDay, (int)previousStats.ItemsPerDay);
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Rarity Distribution Comparison
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "💎 Rarity Distribution Changes");
-        ImGui.Spacing();
-
-        if (ImGui.BeginTable("RarityComparison", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
-        {
-            ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Current", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Previous", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Change", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableHeadersRow();
-
-            var allRarities = currentStats.ByRarity.Keys.Union(previousStats.ByRarity.Keys).OrderByDescending(r => r);
-            foreach (var rarity in allRarities)
-            {
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                ImGui.TextColored(GetRarityColor(rarity), GetRarityName(rarity));
-
-                ImGui.TableNextColumn();
-                var currentCount = currentStats.ByRarity.ContainsKey(rarity) ? currentStats.ByRarity[rarity].Count : 0;
-                ImGui.Text(currentCount.ToString());
-
-                ImGui.TableNextColumn();
-                var previousCount = previousStats.ByRarity.ContainsKey(rarity) ? previousStats.ByRarity[rarity].Count : 0;
-                ImGui.Text(previousCount.ToString());
-
-                ImGui.TableNextColumn();
-                var change = currentCount - previousCount;
-                var changePercent = previousCount > 0 ? (change * 100.0 / previousCount) : 0;
-                
-                if (change > 0)
-                {
-                    ImGui.TextColored(new Vector4(0.3f, 1.0f, 0.3f, 1.0f), $"+{change} (+{changePercent:F1}%)");
-                }
-                else if (change < 0)
-                {
-                    ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), $"{change} ({changePercent:F1}%)");
-                }
-                else
-                {
-                    ImGui.TextDisabled("No change");
-                }
-            }
-
-            ImGui.EndTable();
-        }
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Top Zones Comparison
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Most Active Zones");
-        ImGui.Spacing();
-
-        var topCurrentZones = currentStats.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5);
-        var topPreviousZones = previousStats.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5);
-
-        if (ImGui.BeginTable("ZoneActivity", 2, ImGuiTableFlags.Borders))
-        {
-            ImGui.TableSetupColumn($"Last {comparisonDays} Days", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn($"Previous {comparisonDays} Days", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableHeadersRow();
-
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            
-            foreach (var zone in topCurrentZones)
-            {
-                ImGui.BulletText($"{zone.Value.ZoneName}");
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1.0f), $"({zone.Value.TotalItems} items)");
-            }
-
-            ImGui.TableNextColumn();
-            
-            foreach (var zone in topPreviousZones)
-            {
-                ImGui.BulletText($"{zone.Value.ZoneName}");
-                ImGui.SameLine();
-                ImGui.TextDisabled($"({zone.Value.TotalItems} items)");
-            }
-
-            ImGui.EndTable();
-        }
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Peak Activity Analysis
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Peak Activity Times");
-        ImGui.Spacing();
-
-        if (currentStats.HourlyItems.Any())
-        {
-            var peakHour = currentStats.HourlyItems.OrderByDescending(h => h.Value).First();
-            var avgPerHour = currentStats.HourlyItems.Values.Average();
-            
-            ImGui.Text($"Peak Hour: {peakHour.Key:D2}:00 with {peakHour.Value} items");
-            ImGui.Text($"Average Per Hour: {avgPerHour:F1} items");
-            
-            ImGui.Spacing();
-            ImGui.Text("Activity Heatmap:");
-            ImGui.Spacing();
-            
-            // Show hourly activity in 4-hour blocks
-            for (int block = 0; block < 6; block++)
-            {
-                var startHour = block * 4;
-                var endHour = startHour + 3;
-                var blockTotal = 0;
-                
-                for (int h = startHour; h <= endHour; h++)
-                {
-                    blockTotal += currentStats.HourlyItems.ContainsKey(h) ? currentStats.HourlyItems[h] : 0;
-                }
-                
-                var intensity = avgPerHour > 0 ? blockTotal / (4.0 * avgPerHour) : 0;
-                var color = new Vector4(
-                    0.5f + (float)Math.Min(intensity * 0.5, 0.5),
-                    0.5f,
-                    0.5f - (float)Math.Min(intensity * 0.3, 0.3),
-                    1.0f
-                );
-                
-                ImGui.PushStyleColor(ImGuiCol.Button, color);
-                ImGui.Button($"{startHour:D2}:00 - {endHour:D2}:59\n{blockTotal} items", new Vector2(120, 50));
-                ImGui.PopStyleColor();
-                
-                if (block < 5)
-                {
-                    ImGui.SameLine();
-                }
-            }
-        }
-    }
-
-    private void DrawComparisonMetric(string label, int currentValue, int previousValue)
-    {
-        ImGui.BulletText(label);
-        ImGui.SameLine(200);
-        ImGui.Text($"{currentValue:N0}");
-        ImGui.SameLine(300);
-        
-        if (previousValue > 0)
-        {
-            var change = currentValue - previousValue;
-            var changePercent = (change * 100.0 / previousValue);
-            
-            if (change > 0)
-            {
-                ImGui.TextColored(new Vector4(0.3f, 1.0f, 0.3f, 1.0f), $"▲ +{change:N0} (+{changePercent:F1}%)");
-            }
-            else if (change < 0)
-            {
-                ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), $"▼ {change:N0} ({changePercent:F1}%)");
-            }
-            else
-            {
-                ImGui.TextDisabled("━ No change");
             }
         }
         else
         {
-            ImGui.TextDisabled("━ No previous data");
+            ImGui.TextColored(Theme.TextFaint, "Nothing notable yet");
         }
+
+        ImGui.Dummy(new Vector2(0, 10));
     }
+
+    // ==================================================================
+    // ANALYTICS
+    // ==================================================================
+
+    private void DrawAnalyticsTab()
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, "Compare the last");
+        ImGui.SameLine(0, 10);
+        Theme.SliderInt("##comparisonDays", ref comparisonDays, 1, 30, 170f);
+        ImGui.SameLine(0, 10);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, "days against the period before it");
+
+        if (currentPeriodAsync.IsLoading || previousPeriodAsync.IsLoading)
+        {
+            ImGui.SameLine(0, 12);
+            DrawWorkingBadge();
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+
+        RequestComparisonStatistics();
+
+        if (currentPeriodAsync.IsFirstLoad || previousPeriodAsync.IsFirstLoad)
+        {
+            DrawLoading("Comparing the two periods...");
+            return;
+        }
+
+        var current = currentPeriodAsync.Value;
+        var previous = previousPeriodAsync.Value;
+        if (current == null || previous == null) return;
+
+        Theme.SectionHeader("Items obtained", FontAwesomeIcon.ExchangeAlt);
+        ImGui.Dummy(new Vector2(0, 4));
+
+        ComparisonRow("Total items", current.TotalItems, previous.TotalItems);
+        ComparisonRow("Unique items", current.TotalUnique, previous.TotalUnique);
+        ComparisonRow("HQ items", current.TotalHQ, previous.TotalHQ);
+        ComparisonRow("Items per day", (int)current.ItemsPerDay, (int)previous.ItemsPerDay);
+
+        ImGui.Dummy(new Vector2(0, 14));
+        Theme.SectionHeader("Rarity distribution", FontAwesomeIcon.Gem);
+        ImGui.Dummy(new Vector2(0, 4));
+
+        using (var table = ImRaii.Table("RarityComparison", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
+        {
+            if (table)
+            {
+                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 140);
+                ImGui.TableSetupColumn("Current", ImGuiTableColumnFlags.WidthFixed, 100);
+                ImGui.TableSetupColumn("Previous", ImGuiTableColumnFlags.WidthFixed, 100);
+                ImGui.TableSetupColumn("Change", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableHeadersRow();
+
+                var allRarities = current.ByRarity.Keys.Union(previous.ByRarity.Keys).OrderByDescending(r => r);
+                foreach (var rarity in allRarities)
+                {
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 28f);
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    Theme.RarityGem(rarity, 9f);
+                    ImGui.SameLine(0, 6);
+                    ImGui.TextColored(Theme.RarityColor(rarity), Theme.RarityName(rarity));
+
+                    var currentCount = current.ByRarity.TryGetValue(rarity, out var cv) ? cv.Count : 0;
+                    var previousCount = previous.ByRarity.TryGetValue(rarity, out var pv) ? pv.Count : 0;
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.Text, currentCount.ToString("N0"));
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.TextColored(Theme.TextMuted, previousCount.ToString("N0"));
+
+                    ImGui.TableNextColumn();
+                    ImGui.AlignTextToFramePadding();
+                    DrawDelta(currentCount, previousCount);
+                }
+            }
+        }
+
+        ImGui.Dummy(new Vector2(0, 14));
+        Theme.SectionHeader("Most active zones", FontAwesomeIcon.MapMarkedAlt);
+        ImGui.Dummy(new Vector2(0, 4));
+
+        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
+
+        using (Theme.Card("##ZonesNow", new Vector2(half, 170), true, Theme.Good))
+        {
+            ImGui.TextColored(Theme.Good, $"LAST {comparisonDays} DAYS");
+            ImGui.Dummy(new Vector2(0, 6));
+            var top = current.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5).ToList();
+            if (top.Count > 0)
+            {
+                var max = top.Max(z => z.Value.TotalItems);
+                foreach (var zone in top)
+                    Charts.RankedBar(zone.Value.ZoneName, zone.Value.TotalItems, max, Theme.Good, 150f);
+            }
+            else ImGui.TextColored(Theme.TextFaint, "No activity");
+        }
+
+        ImGui.SameLine(0, 12);
+
+        using (Theme.Card("##ZonesBefore", new Vector2(half, 170), true, Theme.TextFaint))
+        {
+            ImGui.TextColored(Theme.TextMuted, $"PREVIOUS {comparisonDays} DAYS");
+            ImGui.Dummy(new Vector2(0, 6));
+            var top = previous.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5).ToList();
+            if (top.Count > 0)
+            {
+                var max = top.Max(z => z.Value.TotalItems);
+                foreach (var zone in top)
+                    Charts.RankedBar(zone.Value.ZoneName, zone.Value.TotalItems, max, Theme.TextMuted, 150f);
+            }
+            else ImGui.TextColored(Theme.TextFaint, "No activity");
+        }
+
+        ImGui.Dummy(new Vector2(0, 14));
+        Theme.SectionHeader("Peak activity", FontAwesomeIcon.Clock);
+        ImGui.Dummy(new Vector2(0, 4));
+
+        if (current.HourlyItems.Any())
+        {
+            var peakHour = current.HourlyItems.OrderByDescending(h => h.Value).First();
+            var avgPerHour = current.HourlyItems.Values.Average();
+
+            MetricLine(FontAwesomeIcon.ArrowUp, "Peak hour", $"{peakHour.Key:D2}:00  ·  {peakHour.Value:N0} items", Theme.Gold);
+            MetricLine(FontAwesomeIcon.Equals, "Average per hour", $"{avgPerHour:F1} items", Theme.Crystal);
+
+            ImGui.Dummy(new Vector2(0, 10));
+
+            var blocks = Enumerable.Range(0, 6).Select(block =>
+            {
+                var startHour = block * 4;
+                var total = 0;
+                for (var h = startHour; h <= startHour + 3; h++)
+                    total += current.HourlyItems.TryGetValue(h, out var v) ? v : 0;
+                return ($"{startHour:D2}-{startHour + 3:D2}", (double)total);
+            }).ToList();
+
+            Charts.HeatStrip(blocks, 62f, Theme.Gold);
+        }
+        else
+        {
+            ImGui.TextColored(Theme.TextFaint, "Not enough data in this window");
+        }
+
+        ImGui.Dummy(new Vector2(0, 10));
+    }
+
+    private static void ComparisonRow(string label, int currentValue, int previousValue)
+    {
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, label);
+        ImGui.SameLine(190);
+        ImGui.TextColored(Theme.Text, currentValue.ToString("N0"));
+        ImGui.SameLine(290);
+        DrawDelta(currentValue, previousValue);
+    }
+
+    private static void DrawDelta(int currentValue, int previousValue)
+    {
+        if (previousValue <= 0)
+        {
+            ImGui.TextColored(Theme.TextFaint, currentValue > 0 ? "new" : "no data");
+            return;
+        }
+
+        var change = currentValue - previousValue;
+        var percent = change * 100.0 / previousValue;
+
+        if (change > 0)
+            Theme.IconText(FontAwesomeIcon.CaretUp, $"+{change:N0}  ({percent:F1}%)", Theme.Good);
+        else if (change < 0)
+            Theme.IconText(FontAwesomeIcon.CaretDown, $"{change:N0}  ({percent:F1}%)", Theme.Bad);
+        else
+            Theme.IconText(FontAwesomeIcon.Minus, "no change", Theme.TextFaint);
+    }
+
+    // ==================================================================
+    // DUTY TRACKER
+    // ==================================================================
 
     private void DrawDutyTrackerTab()
     {
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Duty/Dungeon Tracker");
-        ImGui.Spacing();
-        ImGui.TextWrapped("Track your performance in duties, dungeons, raids, trials, and alliance raids!");
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        RequestDutyStatistics();
 
-        // Get duty statistics (cached to prevent recalculating every frame)
-        if (cachedDutyStats == null || cachedRecentRuns == null ||
-            (DateTime.Now - lastDutyStatsUpdate).TotalSeconds > 5)
+        if (dutyStatsAsync.IsFirstLoad || recentRunsAsync.IsFirstLoad)
         {
-            Plugin.Log.Info("Recalculating duty statistics (expensive)");
-            cachedDutyStats = plugin.HistoryService.CalculateDutyStatistics()
-                .Where(d => d.Value.ContentType != "Content Type 0")
-                .ToDictionary(k => k.Key, v => v.Value);
-            cachedRecentRuns = plugin.HistoryService.GetRecentDutyRuns(50)
-                .Where(r => r.ContentType != "Content Type 0")
-                .ToList();
-            lastDutyStatsUpdate = DateTime.Now;
+            DrawLoading("Reviewing your duty runs...");
+            return;
         }
-        
-        var dutyStats = cachedDutyStats;
-        var recentRuns = cachedRecentRuns;
 
-        // Tab bar for different views
-        if (ImGui.BeginTabBar("DutyTrackerTabs"))
+        var dutyStats = dutyStatsAsync.Value;
+        var recentRuns = recentRunsAsync.Value;
+        if (dutyStats == null || recentRuns == null) return;
+
+        if (!dutyStats.Any())
         {
-            // Overview Tab
-            if (ImGui.BeginTabItem("Overview"))
-            {
-                ImGui.Spacing();
+            Theme.EmptyState(FontAwesomeIcon.Flag, "No duties recorded yet",
+                "Run a dungeon, trial or raid and LootView will start keeping score.");
+            return;
+        }
 
-                if (!dutyStats.Any())
-                {
-                    ImGui.TextDisabled("No duty runs recorded yet. Enter a duty to start tracking!");
-                }
-                else
-                {
-                    // Summary stats
-                    ImGui.Text($"Total Duties Tracked: {dutyStats.Count}");
-                    ImGui.Text($"Total Runs: {dutyStats.Sum(d => d.Value.TotalAttempts)}");
-                    ImGui.Text($"Total Completions: {dutyStats.Sum(d => d.Value.Completions)}");
-                    ImGui.Text($"Total Items Obtained: {dutyStats.Sum(d => d.Value.TotalItemsObtained)}");
-                    ImGui.Spacing();
-                    ImGui.Separator();
-                    ImGui.Spacing();
+        // --- Summary cards ---------------------------------------------
+        var cardWidth = (ImGui.GetContentRegionAvail().X - 30) / 4f;
+        Theme.StatCard(FontAwesomeIcon.Flag, "Duties tracked", dutyStats.Count.ToString("N0"), Theme.Crystal, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.Redo, "Total runs", dutyStats.Sum(d => d.Value.TotalAttempts).ToString("N0"), Theme.Gold, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.CheckCircle, "Completions", dutyStats.Sum(d => d.Value.Completions).ToString("N0"), Theme.Good, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.Gem, "Items looted", dutyStats.Sum(d => d.Value.TotalItemsObtained).ToString("N0"), Theme.Warn, cardWidth);
 
-                    // Filter by content type
-                    ImGui.Text("Filter by Type:");
-                    ImGui.SameLine();
-                    if (ImGui.Button("All")) selectedContentType = "All";
-                    ImGui.SameLine();
-                    if (ImGui.Button("Dungeon")) selectedContentType = "Dungeon";
-                    ImGui.SameLine();
-                    if (ImGui.Button("Trial")) selectedContentType = "Trial";
-                    ImGui.SameLine();
-                    if (ImGui.Button("Raid")) selectedContentType = "Raid";
-                    ImGui.SameLine();
-                    if (ImGui.Button("Alliance Raid")) selectedContentType = "Alliance Raid";
-                    ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 12));
 
-                    // Filter duties
-                    var filteredStats = selectedContentType == "All" 
-                        ? dutyStats 
-                        : dutyStats.Where(d => d.Value.ContentType == selectedContentType).ToDictionary(k => k.Key, v => v.Value);
+        // --- View + type filter -----------------------------------------
+        Theme.SegmentedControl("##DutyView", ref dutyView, "Leaderboard", "Recent runs", "Best runs");
+        ImGui.SameLine(0, 14);
+        Theme.SegmentedControl("##DutyType", ref dutyTypeFilter, DutyTypes);
 
-                    // Calculate max duty name width
-                    float maxNameWidth = 150f; // Minimum width
-                    foreach (var stat in filteredStats)
-                    {
-                        var nameWidth = ImGui.CalcTextSize(stat.Value.DutyName).X + 20f; // Add padding
-                        if (nameWidth > maxNameWidth)
-                        {
-                            maxNameWidth = nameWidth;
-                        }
-                    }
+        ImGui.Dummy(new Vector2(0, 8));
 
-                    var tableHeight = ImGui.GetContentRegionAvail().Y - 20;
-                    if (ImGui.BeginTable("DutyStatsTable", 8, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable, new Vector2(0, tableHeight)))
-                    {
-                        ImGui.TableSetupColumn("Duty Name", ImGuiTableColumnFlags.WidthFixed, maxNameWidth);
-                        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 100);
-                        ImGui.TableSetupColumn("Runs", ImGuiTableColumnFlags.WidthFixed, 60);
-                        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 60);
-                        ImGui.TableSetupColumn("Items/Run", ImGuiTableColumnFlags.WidthFixed, 80);
-                        ImGui.TableSetupColumn("Avg Time", ImGuiTableColumnFlags.WidthFixed, 80);
-                        ImGui.TableSetupColumn("Best Time", ImGuiTableColumnFlags.WidthFixed, 80);
-                        ImGui.TableSetupColumn("Last Run", ImGuiTableColumnFlags.WidthFixed, 140);
-                        ImGui.TableSetupScrollFreeze(0, 1);
-                        ImGui.TableHeadersRow();
-
-                        foreach (var stat in filteredStats.OrderByDescending(s => s.Value.TotalAttempts))
-                        {
-                            ImGui.TableNextRow();
-                            ImGui.TableNextColumn();
-                            
-                            if (ImGui.Selectable($"##duty_{stat.Key}", false, ImGuiSelectableFlags.SpanAllColumns))
-                            {
-                                selectedDutyId = stat.Key;
-                            }
-                            if (ImGui.IsItemHovered())
-                            {
-                                ImGui.SetTooltip($"Click to see detailed stats for {stat.Value.DutyName}");
-                            }
-                            ImGui.SameLine();
-                            ImGui.Text(stat.Value.DutyName);
-
-                            ImGui.TableNextColumn();
-                            ImGui.TextDisabled(stat.Value.ContentType);
-
-                            ImGui.TableNextColumn();
-                            ImGui.Text(stat.Value.TotalAttempts.ToString());
-
-                            ImGui.TableNextColumn();
-                            ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1.0f), stat.Value.TotalItemsObtained.ToString());
-
-                            ImGui.TableNextColumn();
-                            ImGui.Text($"{stat.Value.AverageItemsPerRun:F1}");
-
-                            ImGui.TableNextColumn();
-                            ImGui.TextDisabled($"{stat.Value.AverageTimeMinutes:F1}m");
-
-                            ImGui.TableNextColumn();
-                            if (stat.Value.FastestTimeMinutes < double.MaxValue)
-                            {
-                                ImGui.TextColored(new Vector4(0.3f, 1.0f, 0.3f, 1.0f), $"{stat.Value.FastestTimeMinutes:F1}m");
-                            }
-                            else
-                            {
-                                ImGui.TextDisabled("-");
-                            }
-
-                            ImGui.TableNextColumn();
-                            ImGui.Text(stat.Value.LastAttempt.ToString("MM/dd HH:mm"));
-                        }
-
-                        ImGui.EndTable();
-                    }
-                }
-
-                ImGui.EndTabItem();
-            }
-
-            // Recent Runs Tab
-            if (ImGui.BeginTabItem("📜 Recent Runs"))
-            {
-                ImGui.Spacing();
-                ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Recent Duty Runs");
-                ImGui.Spacing();
-
-                if (!recentRuns.Any())
-                {
-                    ImGui.TextDisabled("No recent runs to display.");
-                }
-                else
-                {
-                    // Calculate max duty name width for recent runs
-                    float maxNameWidthRecent = 150f; // Minimum width
-                    foreach (var run in recentRuns)
-                    {
-                        var nameWidth = ImGui.CalcTextSize(run.DutyName).X + 20f; // Add padding
-                        if (nameWidth > maxNameWidthRecent)
-                        {
-                            maxNameWidthRecent = nameWidth;
-                        }
-                    }
-
-                    var tableHeight = ImGui.GetContentRegionAvail().Y - 20;
-                    if (ImGui.BeginTable("RecentRunsTable", 6, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0, tableHeight)))
-                    {
-                        ImGui.TableSetupColumn("Date/Time", ImGuiTableColumnFlags.WidthFixed, 140);
-                        ImGui.TableSetupColumn("Duty Name", ImGuiTableColumnFlags.WidthFixed, maxNameWidthRecent);
-                        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 100);
-                        ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, 80);
-                        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 60);
-                        ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 50);
-                        ImGui.TableSetupScrollFreeze(0, 1);
-                        ImGui.TableHeadersRow();
-
-                        foreach (var run in recentRuns)
-                        {
-                            ImGui.TableNextRow();
-                            ImGui.TableNextColumn();
-                            ImGui.Text(run.StartedAt.ToString("MM/dd HH:mm:ss"));
-
-                            ImGui.TableNextColumn();
-                            ImGui.Text(run.DutyName);
-
-                            ImGui.TableNextColumn();
-                            ImGui.TextDisabled(run.ContentType);
-
-                            ImGui.TableNextColumn();
-                            if (run.CompletedAt.HasValue)
-                            {
-                                ImGui.Text($"{run.DurationMinutes:F1}m");
-                            }
-                            else
-                            {
-                                ImGui.TextDisabled("-");
-                            }
-
-                            ImGui.TableNextColumn();
-                            ImGui.Text(run.ItemsObtained.ToString());
-
-                            ImGui.TableNextColumn();
-                            if (run.HQItemsObtained > 0)
-                            {
-                                ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1.0f), run.HQItemsObtained.ToString());
-                            }
-                            else
-                            {
-                                ImGui.TextDisabled("-");
-                            }
-                        }
-
-                        ImGui.EndTable();
-                    }
-                }
-
-                ImGui.EndTabItem();
-            }
-
-            // Best Runs Tab
-            if (selectedDutyId > 0 && ImGui.BeginTabItem("Best Runs"))
-            {
-                ImGui.Spacing();
-                
-                if (dutyStats.TryGetValue(selectedDutyId, out var selectedStats))
-                {
-                    ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), $"Best Runs: {selectedStats.DutyName}");
-                    ImGui.Spacing();
-
-                    var bestRuns = plugin.HistoryService.GetBestRuns(selectedDutyId, 20);
-                    var fastestRuns = plugin.HistoryService.GetFastestRuns(selectedDutyId, 20);
-
-                    if (ImGui.BeginTabBar("BestRunsTabs"))
-                    {
-                        if (ImGui.BeginTabItem("💎 Most Items"))
-                        {
-                            ImGui.Spacing();
-
-                            if (!bestRuns.Any())
-                            {
-                                ImGui.TextDisabled("No completed runs yet.");
-                            }
-                            else
-                            {
-                                var tableHeight = ImGui.GetContentRegionAvail().Y - 20;
-                                if (ImGui.BeginTable("BestRunsItemsTable", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0, tableHeight)))
-                                {
-                                    ImGui.TableSetupColumn("Rank", ImGuiTableColumnFlags.WidthFixed, 50);
-                                    ImGui.TableSetupColumn("Date/Time", ImGuiTableColumnFlags.WidthFixed, 140);
-                                    ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
-                                    ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, 80);
-                                    ImGui.TableSetupColumn("Item IDs", ImGuiTableColumnFlags.WidthStretch);
-                                    ImGui.TableSetupScrollFreeze(0, 1);
-                                    ImGui.TableHeadersRow();
-
-                                    int rank = 1;
-                                    foreach (var run in bestRuns)
-                                    {
-                                        ImGui.TableNextRow();
-                                        ImGui.TableNextColumn();
-                                        var rankColor = rank switch
-                                        {
-                                            1 => new Vector4(1.0f, 0.84f, 0.0f, 1.0f),
-                                            2 => new Vector4(0.75f, 0.75f, 0.75f, 1.0f),
-                                            3 => new Vector4(0.8f, 0.5f, 0.2f, 1.0f),
-                                            _ => new Vector4(1.0f, 1.0f, 1.0f, 1.0f)
-                                        };
-                                        ImGui.TextColored(rankColor, $"#{rank}");
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.Text(run.StartedAt.ToString("MM/dd HH:mm"));
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1.0f), run.ItemsObtained.ToString());
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.Text($"{run.DurationMinutes:F1}m");
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.TextDisabled($"{run.ItemIds.Count} unique items");
-
-                                        rank++;
-                                    }
-
-                                    ImGui.EndTable();
-                                }
-                            }
-
-                            ImGui.EndTabItem();
-                        }
-
-                        if (ImGui.BeginTabItem("⚡ Fastest"))
-                        {
-                            ImGui.Spacing();
-
-                            if (!fastestRuns.Any())
-                            {
-                                ImGui.TextDisabled("No completed runs yet.");
-                            }
-                            else
-                            {
-                                var tableHeight = ImGui.GetContentRegionAvail().Y - 20;
-                                if (ImGui.BeginTable("FastestRunsTable", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0, tableHeight)))
-                                {
-                                    ImGui.TableSetupColumn("Rank", ImGuiTableColumnFlags.WidthFixed, 50);
-                                    ImGui.TableSetupColumn("Date/Time", ImGuiTableColumnFlags.WidthFixed, 140);
-                                    ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, 80);
-                                    ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
-                                    ImGui.TableSetupColumn("Item IDs", ImGuiTableColumnFlags.WidthStretch);
-                                    ImGui.TableSetupScrollFreeze(0, 1);
-                                    ImGui.TableHeadersRow();
-
-                                    int rank = 1;
-                                    foreach (var run in fastestRuns)
-                                    {
-                                        ImGui.TableNextRow();
-                                        ImGui.TableNextColumn();
-                                        var rankColor = rank switch
-                                        {
-                                            1 => new Vector4(1.0f, 0.84f, 0.0f, 1.0f),
-                                            2 => new Vector4(0.75f, 0.75f, 0.75f, 1.0f),
-                                            3 => new Vector4(0.8f, 0.5f, 0.2f, 1.0f),
-                                            _ => new Vector4(1.0f, 1.0f, 1.0f, 1.0f)
-                                        };
-                                        ImGui.TextColored(rankColor, $"#{rank}");
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.Text(run.StartedAt.ToString("MM/dd HH:mm"));
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.TextColored(new Vector4(0.3f, 1.0f, 0.3f, 1.0f), $"{run.DurationMinutes:F1}m");
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.Text(run.ItemsObtained.ToString());
-
-                                        ImGui.TableNextColumn();
-                                        ImGui.TextDisabled($"{run.ItemIds.Count} unique items");
-
-                                        rank++;
-                                    }
-
-                                    ImGui.EndTable();
-                                }
-                            }
-
-                            ImGui.EndTabItem();
-                        }
-
-                        ImGui.EndTabBar();
-                    }
-                }
-                else
-                {
-                    ImGui.TextDisabled("Select a duty from the Overview tab to see best runs.");
-                }
-
-                ImGui.EndTabItem();
-            }
-
-            ImGui.EndTabBar();
+        switch (dutyView)
+        {
+            case 0: DrawDutyLeaderboard(dutyStats); break;
+            case 1: DrawRecentRuns(recentRuns); break;
+            case 2: DrawBestRuns(dutyStats); break;
         }
     }
 
+    private void DrawDutyLeaderboard(Dictionary<uint, DutyStatistics> dutyStats)
+    {
+        var selectedType = DutyTypes[Math.Clamp(dutyTypeFilter, 0, DutyTypes.Length - 1)];
+        var filtered = selectedType == "All"
+            ? dutyStats
+            : dutyStats.Where(d => d.Value.ContentType == selectedType).ToDictionary(k => k.Key, v => v.Value);
+
+        if (filtered.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.Filter, $"No {selectedType.ToLower()} runs recorded",
+                "Pick a different content type above.");
+            return;
+        }
+
+        ImGui.TextColored(Theme.TextFaint, "Click a duty to inspect its best runs");
+        ImGui.Dummy(new Vector2(0, 4));
+
+        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        using var table = ImRaii.Table("DutyStatsTable", 8,
+            ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
+            new Vector2(0, tableHeight));
+        if (!table) return;
+
+        ImGui.TableSetupColumn("Duty", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
+        ImGui.TableSetupColumn("Runs", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("Per run", ImGuiTableColumnFlags.WidthFixed, 80);
+        ImGui.TableSetupColumn("Avg time", ImGuiTableColumnFlags.WidthFixed, 85);
+        ImGui.TableSetupColumn("Best time", ImGuiTableColumnFlags.WidthFixed, 85);
+        ImGui.TableSetupColumn("Last run", ImGuiTableColumnFlags.WidthFixed, 140);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        foreach (var stat in dutyStats.Where(s => selectedType == "All" || s.Value.ContentType == selectedType)
+                     .OrderByDescending(s => s.Value.TotalAttempts))
+        {
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 30f);
+            ImGui.TableNextColumn();
+
+            var isSelected = selectedDutyId == stat.Key;
+            ImGui.AlignTextToFramePadding();
+            if (ImGui.Selectable($"##duty_{stat.Key}", isSelected, ImGuiSelectableFlags.SpanAllColumns))
+            {
+                selectedDutyId = stat.Key;
+                dutyView = 2;
+            }
+            ImGui.SameLine(0, 0);
+            ImGui.TextColored(isSelected ? Theme.GoldBright : Theme.Text, stat.Value.DutyName);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, stat.Value.ContentType);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, stat.Value.TotalAttempts.ToString("N0"));
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Good, stat.Value.TotalItemsObtained.ToString("N0"));
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, $"{stat.Value.AverageItemsPerRun:F1}");
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, $"{stat.Value.AverageTimeMinutes:F1}m");
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            if (stat.Value.FastestTimeMinutes < double.MaxValue)
+                ImGui.TextColored(Theme.Crystal, $"{stat.Value.FastestTimeMinutes:F1}m");
+            else
+                ImGui.TextColored(Theme.TextFaint, "-");
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextFaint, stat.Value.LastAttempt.ToString("MM/dd HH:mm"));
+        }
+    }
+
+    private void DrawRecentRuns(List<DutyRun> recentRuns)
+    {
+        var selectedType = DutyTypes[Math.Clamp(dutyTypeFilter, 0, DutyTypes.Length - 1)];
+        var runs = selectedType == "All" ? recentRuns : recentRuns.Where(r => r.ContentType == selectedType).ToList();
+
+        if (runs.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.History, "No recent runs", "Nothing matching this content type yet.");
+            return;
+        }
+
+        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        using var table = ImRaii.Table("RecentRunsTable", 6,
+            ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
+            new Vector2(0, tableHeight));
+        if (!table) return;
+
+        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 150);
+        ImGui.TableSetupColumn("Duty", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
+        ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, 90);
+        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        foreach (var run in runs)
+        {
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 30f);
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, run.StartedAt.ToString("MM/dd HH:mm:ss"));
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, run.DutyName);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, run.ContentType);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            if (run.CompletedAt.HasValue)
+                ImGui.TextColored(Theme.Crystal, $"{run.DurationMinutes:F1}m");
+            else
+                ImGui.TextColored(Theme.TextFaint, "abandoned");
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, run.ItemsObtained.ToString("N0"));
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            if (run.HQItemsObtained > 0)
+                ImGui.TextColored(Theme.Warn, run.HQItemsObtained.ToString());
+            else
+                ImGui.TextColored(Theme.TextFaint, "-");
+        }
+    }
+
+    private void DrawBestRuns(Dictionary<uint, DutyStatistics> dutyStats)
+    {
+        if (selectedDutyId == 0 || !dutyStats.TryGetValue(selectedDutyId, out var selectedStats))
+        {
+            Theme.EmptyState(FontAwesomeIcon.HandPointUp, "Pick a duty first",
+                "Choose one from the leaderboard to see its records.");
+            return;
+        }
+
+        Theme.SectionHeader(selectedStats.DutyName, FontAwesomeIcon.Trophy);
+
+        // Previously re-queried on every frame; now computed once per duty, off-thread.
+        var runsKey = (selectedDutyId, itemCount);
+        var dutyId = selectedDutyId;
+        bestRunsAsync.Ensure(runsKey, () => plugin.HistoryService.GetBestRuns(dutyId, 20));
+        fastestRunsAsync.Ensure(runsKey, () => plugin.HistoryService.GetFastestRuns(dutyId, 20));
+
+        if (bestRunsAsync.IsFirstLoad || fastestRunsAsync.IsFirstLoad)
+        {
+            DrawLoading("Ranking your runs...");
+            return;
+        }
+
+        var bestRuns = bestRunsAsync.Value ?? new List<DutyRun>();
+        var fastestRuns = fastestRunsAsync.Value ?? new List<DutyRun>();
+
+        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
+        var height = ImGui.GetContentRegionAvail().Y - 10;
+
+        using (Theme.Card("##MostItems", new Vector2(half, height), true, Theme.Gold))
+        {
+            Theme.IconText(FontAwesomeIcon.Gem, "MOST ITEMS", Theme.Gold);
+            ImGui.Dummy(new Vector2(0, 6));
+            DrawRunRanking(bestRuns, run => run.ItemsObtained.ToString("N0"), run => $"{run.DurationMinutes:F1}m");
+        }
+
+        ImGui.SameLine(0, 12);
+
+        using (Theme.Card("##Fastest", new Vector2(half, height), true, Theme.Crystal))
+        {
+            Theme.IconText(FontAwesomeIcon.Bolt, "FASTEST CLEARS", Theme.Crystal);
+            ImGui.Dummy(new Vector2(0, 6));
+            DrawRunRanking(fastestRuns, run => $"{run.DurationMinutes:F1}m", run => $"{run.ItemsObtained} items");
+        }
+    }
+
+    private static void DrawRunRanking(List<DutyRun> runs, Func<DutyRun, string> primary, Func<DutyRun, string> secondary)
+    {
+        if (runs.Count == 0)
+        {
+            ImGui.TextColored(Theme.TextFaint, "No completed runs yet");
+            return;
+        }
+
+        var rank = 1;
+        foreach (var run in runs)
+        {
+            var medal = rank switch
+            {
+                1 => new Vector4(1.0f, 0.84f, 0.0f, 1f),
+                2 => new Vector4(0.78f, 0.80f, 0.84f, 1f),
+                3 => new Vector4(0.80f, 0.53f, 0.27f, 1f),
+                _ => Theme.TextFaint,
+            };
+
+            ImGui.TextColored(medal, $"#{rank}");
+            ImGui.SameLine(40);
+            ImGui.TextColored(Theme.Text, primary(run));
+            ImGui.SameLine(110);
+            ImGui.TextColored(Theme.TextMuted, secondary(run));
+            ImGui.SameLine(200);
+            ImGui.TextColored(Theme.TextFaint, run.StartedAt.ToString("MM/dd HH:mm"));
+
+            rank++;
+        }
+    }
+
+    // ==================================================================
+    // ZONE FINDER
+    // ==================================================================
+
+    private void DrawZoneFinderTab()
+    {
+        Theme.Callout(FontAwesomeIcon.InfoCircle, "Instanced battle content",
+            "Dungeons, trials and raids (normal, savage and ultimate) are supported. Overworld zones and some special content have no drop table on record.",
+            Theme.Crystal);
+
+        ImGui.Dummy(new Vector2(0, 10));
+
+        ImGui.AlignTextToFramePadding();
+        Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
+        ImGui.SameLine(0, 8);
+        ImGui.SetNextItemWidth(320);
+        if (ImGui.InputTextWithHint("##ZoneSearch", "Sastasha, Titan, Alexander...", ref zoneSearchQuery, 100,
+                ImGuiInputTextFlags.EnterReturnsTrue))
+        {
+            PerformZoneSearch();
+        }
+
+        ImGui.SameLine(0, 10);
+        if (Theme.PrimaryButton("Search", new Vector2(110, 0)))
+        {
+            PerformZoneSearch();
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+
+        if (zoneSearchPerformed && zoneSearchResults.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.MapSigns, "No zones found",
+                "Try a shorter or differently spelled name.");
+            return;
+        }
+
+        if (zoneSearchResults.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.Compass, "Look up any duty's loot table",
+                "Type a dungeon, trial or raid name and press Enter.");
+            return;
+        }
+
+        ImGui.AlignTextToFramePadding();
+        Theme.Badge($"{zoneSearchResults.Count} matches", Theme.Crystal);
+        ImGui.Dummy(new Vector2(0, 6));
+
+        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        using var table = ImRaii.Table("ZoneSearchResultsTable", 4,
+            ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV,
+            new Vector2(0, tableHeight));
+        if (!table) return;
+
+        ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 140);
+        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, 70);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 130);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        foreach (var result in zoneSearchResults)
+        {
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+
+            ImGui.TableSetColumnIndex(0);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, result.Name);
+
+            ImGui.TableSetColumnIndex(1);
+            ImGui.AlignTextToFramePadding();
+            Theme.Badge(result.ContentType, Theme.Crystal);
+
+            ImGui.TableSetColumnIndex(2);
+            ImGui.AlignTextToFramePadding();
+            if (result.ItemLevel > 0)
+                ImGui.TextColored(Theme.Gold, $"i{result.ItemLevel}");
+            else
+                ImGui.TextColored(Theme.TextFaint, "-");
+
+            ImGui.TableSetColumnIndex(3);
+            if (Theme.GhostButton($"View loot##{result.ContentFinderConditionId}", new Vector2(120, 0)))
+            {
+                plugin.LootTableWindow.IsOpen = true;
+                LoadZoneLootTable(result.ContentFinderConditionId);
+            }
+        }
+    }
+
+    // ==================================================================
+    // BLACKLIST
+    // ==================================================================
+
     private void DrawBlacklistTab()
     {
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.5f, 1.0f), "Blacklisted Items");
-        ImGui.Spacing();
-
         var config = plugin.ConfigService.Configuration;
         var blacklistedIds = config.BlacklistedItemIds ?? new List<uint>();
 
         if (blacklistedIds.Count == 0)
         {
-            ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "No items in blacklist.");
-            ImGui.Spacing();
-            ImGui.TextWrapped("Right-click any item in the Loot Window and select 'Add to Blacklist' to hide items you don't want to track.");
+            Theme.EmptyState(FontAwesomeIcon.EyeSlash, "Nothing is blacklisted",
+                "Right-click an item in the loot list to stop tracking it.");
             return;
         }
 
-        ImGui.Text($"Total blacklisted items: {blacklistedIds.Count}");
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        ImGui.AlignTextToFramePadding();
+        Theme.Badge($"{blacklistedIds.Count} hidden items", Theme.Bad);
 
-        // Clear all button
-        if (ImGui.Button("Clear All Blacklist", new Vector2(150, 30)))
+        ImGui.SameLine();
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - 160, 0));
+        if (Theme.DangerButton("Clear blacklist", new Vector2(160, 0)))
         {
             ImGui.OpenPopup("ConfirmClearBlacklist");
         }
 
-        if (ImGui.BeginPopupModal("ConfirmClearBlacklist", ImGuiWindowFlags.AlwaysAutoResize))
-        {
-            ImGui.Text("Are you sure you want to remove all items from the blacklist?");
-            ImGui.Spacing();
-            
-            if (ImGui.Button("Yes, Clear All", new Vector2(120, 0)))
+        DrawConfirmPopup("ConfirmClearBlacklist",
+            "Remove every item from the blacklist?",
+            "They will start appearing in the loot list again.",
+            "Yes, clear it",
+            () =>
             {
                 config.BlacklistedItemIds?.Clear();
                 plugin.ConfigService.Save();
-                ImGui.CloseCurrentPopup();
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Cancel", new Vector2(120, 0)))
+            });
+
+        ImGui.Dummy(new Vector2(0, 8));
+
+        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        using var table = ImRaii.Table("BlacklistTable", 4,
+            ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV,
+            new Vector2(0, tableHeight));
+        if (!table) return;
+
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 90);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 110);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        var itemsToRemove = new List<uint>();
+
+        foreach (var itemId in blacklistedIds.ToList())
+        {
+            var itemRow = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>()?.GetRow(itemId);
+
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 34f);
+
+            ImGui.TableSetColumnIndex(0);
+            if (itemRow.HasValue && itemRow.Value.Icon > 0)
             {
-                ImGui.CloseCurrentPopup();
+                DrawItemIcon(itemRow.Value.Icon, 28f);
             }
-            ImGui.EndPopup();
+            else
+            {
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextColored(Theme.TextFaint, "?");
+            }
+
+            ImGui.TableSetColumnIndex(1);
+            ImGui.AlignTextToFramePadding();
+            if (itemRow.HasValue)
+            {
+                var item = itemRow.Value;
+                Theme.RarityGem(item.Rarity, 9f);
+                ImGui.SameLine(0, 7);
+                ImGui.TextColored(Theme.RarityColor(item.Rarity), item.Name.ExtractText());
+            }
+            else
+            {
+                ImGui.TextColored(Theme.TextMuted, "Unknown item");
+            }
+
+            ImGui.TableSetColumnIndex(2);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextFaint, itemId.ToString());
+
+            ImGui.TableSetColumnIndex(3);
+            if (Theme.GhostButton($"Restore##Remove_{itemId}", new Vector2(100, 0), Theme.Good))
+            {
+                itemsToRemove.Add(itemId);
+            }
         }
 
-        ImGui.Spacing();
-
-        // Display blacklisted items in a table
-        if (ImGui.BeginTable("BlacklistTable", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY))
+        foreach (var itemId in itemsToRemove)
         {
-            ImGui.TableSetupColumn("Icon", ImGuiTableColumnFlags.WidthFixed, 40);
-            ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Item ID", ImGuiTableColumnFlags.WidthFixed, 80);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableHeadersRow();
+            config.BlacklistedItemIds?.Remove(itemId);
+        }
 
-            var itemsToRemove = new List<uint>();
-
-            foreach (var itemId in blacklistedIds.ToList())
-            {
-                var itemRow = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>()?.GetRow(itemId);
-                
-                ImGui.TableNextRow();
-                
-                // Icon column
-                ImGui.TableSetColumnIndex(0);
-                if (itemRow.HasValue)
-                {
-                    var item = itemRow.Value;
-                    var icon = item.Icon;
-                    if (icon > 0)
-                    {
-                        if (!iconCache.TryGetValue(icon, out var texture))
-                        {
-                            texture = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(icon));
-                            if (texture != null)
-                            {
-                                iconCache[icon] = texture;
-                            }
-                        }
-
-                        if (texture != null)
-                        {
-                            var wrap = texture.GetWrapOrDefault();
-                            if (wrap != null)
-                            {
-                                ImGui.Image(wrap.Handle, new Vector2(32, 32));
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    ImGui.Text("?");
-                }
-
-                // Item name column
-                ImGui.TableSetColumnIndex(1);
-                if (itemRow.HasValue)
-                {
-                    var item = itemRow.Value;
-                    var rarityColor = GetRarityColorForItem(item.Rarity);
-                    ImGui.TextColored(rarityColor, item.Name.ExtractText());
-                }
-                else
-                {
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"Unknown Item");
-                }
-
-                // Item ID column
-                ImGui.TableSetColumnIndex(2);
-                ImGui.Text(itemId.ToString());
-
-                // Actions column
-                ImGui.TableSetColumnIndex(3);
-                if (ImGui.Button($"Remove##Remove_{itemId}", new Vector2(90, 0)))
-                {
-                    itemsToRemove.Add(itemId);
-                }
-            }
-
-            // Remove items after iteration
-            foreach (var itemId in itemsToRemove)
-            {
-                config.BlacklistedItemIds?.Remove(itemId);
-            }
-            
-            if (itemsToRemove.Count > 0)
-            {
-                plugin.ConfigService.Save();
-            }
-
-            ImGui.EndTable();
+        if (itemsToRemove.Count > 0)
+        {
+            plugin.ConfigService.Save();
         }
     }
 
-    private Vector4 GetRarityColorForItem(byte rarity)
-    {
-        return rarity switch
-        {
-            1 => new Vector4(1.0f, 1.0f, 1.0f, 1.0f),      // Common (white)
-            2 => new Vector4(0.2f, 1.0f, 0.2f, 1.0f),      // Uncommon (green)
-            3 => new Vector4(0.3f, 0.5f, 1.0f, 1.0f),      // Rare (blue)
-            4 => new Vector4(0.8f, 0.3f, 1.0f, 1.0f),      // Epic (purple)
-            7 => new Vector4(1.0f, 0.8f, 0.4f, 1.0f),      // Relic (gold)
-            _ => new Vector4(0.7f, 0.7f, 0.7f, 1.0f)       // Default (gray)
-        };
-    }
+    // ==================================================================
+    // EXPORT
+    // ==================================================================
 
     private void DrawExportTab()
     {
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1.0f, 1.0f), "Export History");
-        ImGui.Spacing();
-
         var history = plugin.HistoryService.GetHistory();
-        ImGui.Text($"Total items in history: {history.TotalItemsObtained:N0}");
-        ImGui.Text($"Days tracked: {history.DailyStatistics.Count}");
-        ImGui.Text($"Last updated: {history.LastUpdated:yyyy-MM-dd HH:mm:ss}");
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        Theme.SectionHeader("Your collection", FontAwesomeIcon.Database);
 
-        ImGui.TextWrapped("Export your loot history to external files for backup or analysis in spreadsheet applications.");
-        ImGui.Spacing();
+        var cardWidth = (ImGui.GetContentRegionAvail().X - 20) / 3f;
+        Theme.StatCard(FontAwesomeIcon.Gem, "Items in history", history.TotalItemsObtained.ToString("N0"), Theme.Gold, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.CalendarAlt, "Days tracked", history.DailyStatistics.Count.ToString("N0"), Theme.Crystal, cardWidth);
+        ImGui.SameLine(0, 10);
+        Theme.StatCard(FontAwesomeIcon.Clock, "Last updated", history.LastUpdated.ToString("MM/dd HH:mm"), Theme.Good, cardWidth);
 
-        if (ImGui.Button("Export to JSON", new Vector2(200, 30)))
+        ImGui.Dummy(new Vector2(0, 16));
+        Theme.SectionHeader("Export", FontAwesomeIcon.FileExport);
+        ImGui.TextColored(Theme.TextMuted, "Files are written to your Documents folder.");
+        ImGui.Dummy(new Vector2(0, 8));
+
+        if (Theme.PrimaryButton("Export as JSON", new Vector2(190, 34)))
         {
             var path = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                $"LootView_History_{DateTime.Now:yyyyMMdd_HHmmss}.json"
-            );
+                $"LootView_History_{DateTime.Now:yyyyMMdd_HHmmss}.json");
             plugin.HistoryService.ExportToJson(path);
-            Plugin.ChatGui.Print($"History exported to: {path}");
+            Plugin.ChatGui.Print($"[LootView] History exported to: {path}");
         }
+        ImGui.SameLine(0, 10);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextFaint, "Complete history with every field");
 
-        ImGui.SameLine();
-        ImGui.TextDisabled("Full history with all details");
+        ImGui.Dummy(new Vector2(0, 6));
 
-        if (ImGui.Button("Export to CSV", new Vector2(200, 30)))
+        if (Theme.GhostButton("Export as CSV", new Vector2(190, 34)))
         {
             var path = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                $"LootView_History_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
-            );
+                $"LootView_History_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
             plugin.HistoryService.ExportToCsv(path);
-            Plugin.ChatGui.Print($"History exported to: {path}");
+            Plugin.ChatGui.Print($"[LootView] History exported to: {path}");
         }
+        ImGui.SameLine(0, 10);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextFaint, "Spreadsheet-friendly");
 
-        ImGui.SameLine();
-        ImGui.TextDisabled("Spreadsheet-friendly format");
+        ImGui.Dummy(new Vector2(0, 18));
+        Theme.SectionHeader("Danger zone", FontAwesomeIcon.ExclamationTriangle);
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        Theme.Callout(FontAwesomeIcon.Trash, "Deleting history cannot be undone",
+            "Every recorded item, duty run and daily statistic is removed permanently. Export a backup first.",
+            Theme.Bad);
 
-        // Data Management
-        ImGui.TextColored(new Vector4(1.0f, 0.5f, 0.3f, 1.0f), "Data Management");
-        ImGui.Spacing();
+        ImGui.Dummy(new Vector2(0, 10));
 
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.9f, 0.5f, 1.0f));
-        ImGui.TextWrapped("ℹ History is kept forever. Use the export buttons above to backup your data.");
-        ImGui.PopStyleColor();
-        ImGui.Spacing();
-        ImGui.Spacing();
-
-        // Danger zone
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.2f, 0.2f, 1.0f));
-        ImGui.TextWrapped("⚠ DANGER ZONE ⚠");
-        ImGui.PopStyleColor();
-        ImGui.TextWrapped("This will permanently delete ALL history. This action cannot be undone!");
-        ImGui.Spacing();
-
-        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 1.0f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(1.0f, 0.3f, 0.3f, 1.0f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.6f, 0.1f, 0.1f, 1.0f));
-        
-        if (ImGui.Button("Clear All History", new Vector2(200, 30)))
+        if (Theme.DangerButton("Delete all history", new Vector2(200, 34)))
         {
             ImGui.OpenPopup("ConfirmClear");
         }
-        
-        ImGui.PopStyleColor(3);
 
-        // Confirmation popup
-        var confirmOpen = true;
-        if (ImGui.BeginPopupModal("ConfirmClear", ref confirmOpen, ImGuiWindowFlags.AlwaysAutoResize))
-        {
-            ImGui.Text("Are you absolutely sure you want to delete ALL history?");
-            ImGui.Text("This action cannot be undone!");
-            ImGui.Spacing();
-            ImGui.Separator();
-            ImGui.Spacing();
-
-            if (ImGui.Button("Yes, Delete Everything", new Vector2(200, 0)))
+        DrawConfirmPopup("ConfirmClear",
+            "Delete your entire loot history?",
+            "This removes every item, duty run and statistic. It cannot be undone.",
+            "Yes, delete everything",
+            () =>
             {
                 plugin.HistoryService.ClearAllHistory();
-                RefreshStatistics();
-                ImGui.CloseCurrentPopup();
-            }
+                InvalidateAll();
+            });
 
-            ImGui.SameLine();
-            if (ImGui.Button("Cancel", new Vector2(100, 0)))
-            {
-                ImGui.CloseCurrentPopup();
-            }
+        ImGui.Dummy(new Vector2(0, 10));
+    }
 
-            ImGui.EndPopup();
+    private static void DrawConfirmPopup(string id, string title, string body, string confirmLabel, Action onConfirm)
+    {
+        using var style = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(18, 16));
+        var open = true;
+        using var popup = ImRaii.PopupModal(id, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoTitleBar);
+        if (!popup) return;
+
+        Theme.IconText(FontAwesomeIcon.ExclamationTriangle, title, Theme.Warn);
+        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 360);
+        ImGui.TextColored(Theme.TextMuted, body);
+        ImGui.PopTextWrapPos();
+
+        Theme.Rule(8f);
+
+        if (Theme.DangerButton(confirmLabel, new Vector2(210, 32)))
+        {
+            onConfirm();
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine(0, 10);
+        if (Theme.GhostButton("Cancel", new Vector2(110, 32)))
+        {
+            ImGui.CloseCurrentPopup();
         }
     }
 
-    private void RefreshStatistics()
+    // ==================================================================
+    // HELPERS
+    // ==================================================================
+
+    /// <summary>Queues the overview/trends statistics for the selected date range.</summary>
+    private void RequestOverviewStatistics()
     {
         DateTime? start = dateRangeOption == 3 ? null : statsStartDate;
         DateTime? end = dateRangeOption == 3 ? null : statsEndDate;
-        
-        Plugin.Log.Info("Refreshing statistics (expensive operation)");
-        cachedStats = plugin.HistoryService.CalculateStatistics(start, end);
-        lastStatsUpdate = DateTime.Now;
+
+        statsAsync.Ensure((dateRangeOption, start, end, itemCount),
+            () => plugin.HistoryService.CalculateStatistics(start, end));
+    }
+
+    /// <summary>Queues the two period snapshots the analytics tab compares.</summary>
+    private void RequestComparisonStatistics()
+    {
+        var days = comparisonDays;
+        var currentEnd = DateTime.Now;
+        var currentStart = currentEnd.AddDays(-days);
+        var previousEnd = currentStart;
+        var previousStart = previousEnd.AddDays(-days);
+
+        // The range endpoints move every frame, so the key uses the day count instead.
+        currentPeriodAsync.Ensure((days, itemCount, "current"),
+            () => plugin.HistoryService.CalculateStatistics(currentStart, currentEnd));
+        previousPeriodAsync.Ensure((days, itemCount, "previous"),
+            () => plugin.HistoryService.CalculateStatistics(previousStart, previousEnd));
+    }
+
+    /// <summary>Queues the duty leaderboard and the recent-run list.</summary>
+    private void RequestDutyStatistics()
+    {
+        dutyStatsAsync.Ensure(itemCount, () => plugin.HistoryService.CalculateDutyStatistics()
+            .Where(d => d.Value.ContentType != "Content Type 0")
+            .ToDictionary(k => k.Key, v => v.Value));
+
+        recentRunsAsync.Ensure(itemCount, () => plugin.HistoryService.GetRecentDutyRuns(50)
+            .Where(r => r.ContentType != "Content Type 0")
+            .ToList());
+    }
+
+    /// <summary>Queues the filtered, sorted history the browser tab pages through.</summary>
+    private void RequestFilteredHistory()
+    {
+        var search = searchQuery;
+        var rarity = filterRarity;
+        var zone = filterZone;
+        var hqOnly = filterHQOnly;
+        var ownOnly = filterOwnLootOnly;
+        var descending = sortDescending;
+        var column = sortColumn;
+
+        historyAsync.Ensure((search, rarity, zone, hqOnly, ownOnly, column, descending, itemCount), () =>
+        {
+            // Snapshot first: the list keeps growing on the game thread while we filter.
+            IEnumerable<LootItem> items = plugin.HistoryService.SnapshotItems();
+
+            if (!string.IsNullOrWhiteSpace(search))
+                items = items.Where(i => i.ItemName.Contains(search, StringComparison.OrdinalIgnoreCase));
+            if (rarity != 999)
+                items = items.Where(i => i.Rarity == rarity);
+            if (!string.IsNullOrWhiteSpace(zone))
+                items = items.Where(i => i.ZoneName.Contains(zone, StringComparison.OrdinalIgnoreCase));
+            if (hqOnly)
+                items = items.Where(i => i.IsHQ);
+            if (ownOnly)
+                items = items.Where(i => i.IsOwnLoot);
+
+            return column switch
+            {
+                "ItemName" => descending ? items.OrderByDescending(i => i.ItemName).ToList() : items.OrderBy(i => i.ItemName).ToList(),
+                "Rarity" => descending ? items.OrderByDescending(i => i.Rarity).ToList() : items.OrderBy(i => i.Rarity).ToList(),
+                "Zone" => descending ? items.OrderByDescending(i => i.ZoneName).ToList() : items.OrderBy(i => i.ZoneName).ToList(),
+                _ => descending ? items.OrderByDescending(i => i.Timestamp).ToList() : items.OrderBy(i => i.Timestamp).ToList()
+            };
+        });
+    }
+
+    /// <summary>Drops every cached result so the next frame recomputes from scratch.</summary>
+    private void InvalidateAll()
+    {
+        statsAsync.Invalidate();
+        historyAsync.Invalidate();
+        currentPeriodAsync.Invalidate();
+        previousPeriodAsync.Invalidate();
+        dutyStatsAsync.Invalidate();
+        recentRunsAsync.Invalidate();
+        bestRunsAsync.Invalidate();
+        fastestRunsAsync.Invalidate();
+    }
+
+    /// <summary>Full-panel placeholder for the first computation of a tab.</summary>
+    private static void DrawLoading(string message)
+    {
+        var avail = ImGui.GetContentRegionAvail();
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - 80f) * 0.4f, 10f));
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - 26f) * 0.5f, 0));
+
+        Theme.Spinner();
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.CenteredText(message, Theme.Text);
+        Theme.CenteredText("The game keeps running while this finishes", Theme.TextFaint);
+    }
+
+    /// <summary>Inline hint that a refresh is running behind the results on screen.</summary>
+    private static void DrawWorkingBadge()
+    {
+        var dots = new string('.', 1 + (int)(Theme.Time * 3f) % 3);
+        ImGui.AlignTextToFramePadding();
+        Theme.Badge($"updating{dots}", Theme.Crystal);
     }
 
     private void UpdateDateRange()
@@ -1555,168 +1472,33 @@ public class StatisticsWindow : Window
                 statsStartDate = new DateTime(now.Year, now.Month, 1);
                 statsEndDate = now;
                 break;
-            case 3: // All Time
-                // Will use null in the query
+            case 3: // All Time - handled with nulls in the query
                 break;
         }
-        RefreshStatistics();
     }
 
-    private void DrawStatBox(string label, string value, Vector4 color)
+    private void DrawItemIcon(uint iconId, float size = 24f)
     {
-        var availWidth = ImGui.GetContentRegionAvail().X / 4 - 10;
-        
-        ImGui.BeginChild($"##{label}StatBox", new Vector2(availWidth, 60), true);
-        ImGui.TextColored(color, value);
-        ImGui.TextDisabled(label);
-        ImGui.EndChild();
-    }
+        if (iconId == 0)
+        {
+            ImGui.Dummy(new Vector2(size, size));
+            return;
+        }
 
-    private void DrawItemIcon(uint iconId)
-    {
-        if (iconId == 0) return;
-        
-        // Check cache first
         if (!iconCache.TryGetValue(iconId, out var icon))
         {
-            // Load icon and cache it
             icon = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(iconId));
             iconCache[iconId] = icon;
         }
-        
+
         var wrap = icon?.GetWrapOrDefault();
         if (wrap != null)
         {
-            ImGui.Image(wrap.Handle, new Vector2(24, 24));
-        }
-    }
-
-    private Vector4 GetRarityColor(uint rarity)
-    {
-        return rarity switch
-        {
-            1 => new Vector4(1.0f, 1.0f, 1.0f, 1.0f),      // Common - White
-            2 => new Vector4(0.5f, 1.0f, 0.5f, 1.0f),      // Uncommon - Green
-            3 => new Vector4(0.4f, 0.7f, 1.0f, 1.0f),      // Rare - Blue
-            4 => new Vector4(0.8f, 0.4f, 1.0f, 1.0f),      // Rare+ - Purple
-            7 => new Vector4(1.0f, 0.5f, 0.8f, 1.0f),      // Legendary/Relic - Pink
-            _ => new Vector4(0.7f, 0.7f, 0.7f, 1.0f)       // Unknown - Gray
-        };
-    }
-
-    private string GetRarityName(uint rarity)
-    {
-        return rarity switch
-        {
-            1 => "Common",
-            2 => "Uncommon",
-            3 => "Rare",
-            4 => "Rare+",
-            7 => "Relic",
-            _ => "Unknown"
-        };
-    }
-
-    private void DrawZoneFinderTab()
-    {
-        ImGui.TextWrapped("Search for dungeons, trials, and raids by name to view their loot tables.");
-        ImGui.Spacing();
-        
-        // Disclaimer box
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.2f, 0.3f, 0.4f, 0.3f));
-        if (ImGui.BeginChild("DisclaimerBox", new Vector2(0, 80), true))
-        {
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.9f, 0.5f, 1.0f));
-            ImGui.Text("ℹ️ Supported Content:");
-            ImGui.PopStyleColor();
-            
-            ImGui.Spacing();
-            ImGui.TextWrapped("✓ Dungeons  ✓ Trials  ✓ Raids (Normal/Savage/Ultimate)");
-            ImGui.TextWrapped("This feature works best with instanced battle content (dungeons, trials, raids). Overworld zones and some special content may not have loot table data available.");
-            
-            ImGui.EndChild();
-        }
-        ImGui.PopStyleColor();
-        
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Search box
-        ImGui.Text("Search Zone:");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(300);
-        if (ImGui.InputText("##ZoneSearch", ref zoneSearchQuery, 100, ImGuiInputTextFlags.EnterReturnsTrue))
-        {
-            PerformZoneSearch();
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Search"))
-        {
-            PerformZoneSearch();
-        }
-        
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
-
-        // Search results
-        if (zoneSearchPerformed && zoneSearchResults.Count == 0)
-        {
-            ImGui.TextColored(new Vector4(1, 0.7f, 0, 1), "No zones found matching your search.");
-            ImGui.TextDisabled("Try searching for: Sastasha, Titan, Alexander, etc.");
-        }
-        else if (zoneSearchResults.Count > 0)
-        {
-            ImGui.Text($"Found {zoneSearchResults.Count} zone(s):");
-            ImGui.Spacing();
-
-            // Results table
-            if (ImGui.BeginTable("ZoneSearchResultsTable", 4, 
-                ImGuiTableFlags.Borders | 
-                ImGuiTableFlags.RowBg | 
-                ImGuiTableFlags.ScrollY,
-                new Vector2(0, 300)))
-            {
-                ImGui.TableSetupColumn("Zone Name", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
-                ImGui.TableSetupColumn("Level", ImGuiTableColumnFlags.WidthFixed, 60);
-                ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 120);
-                ImGui.TableSetupScrollFreeze(0, 1);
-                ImGui.TableHeadersRow();
-
-                foreach (var result in zoneSearchResults)
-                {
-                    ImGui.TableNextRow();
-
-                    ImGui.TableSetColumnIndex(0);
-                    ImGui.Text(result.Name);
-
-                    ImGui.TableSetColumnIndex(1);
-                    ImGui.TextColored(new Vector4(0.7f, 0.9f, 1.0f, 1), result.ContentType);
-
-                    ImGui.TableSetColumnIndex(2);
-                    if (result.ItemLevel > 0)
-                    {
-                        ImGui.Text($"i{result.ItemLevel}");
-                    }
-
-                    ImGui.TableSetColumnIndex(3);
-                    if (ImGui.Button($"View Loot##{result.ContentFinderConditionId}"))
-                    {
-                        selectedZoneForLootTable = result.TerritoryId;
-                        selectedZoneName = result.Name;
-                        plugin.LootTableWindow.IsOpen = true;
-                        LoadZoneLootTable(result.ContentFinderConditionId);
-                    }
-                }
-
-                ImGui.EndTable();
-            }
+            ImGui.Image(wrap.Handle, new Vector2(size, size));
         }
         else
         {
-            ImGui.TextDisabled("Enter a zone name and click Search to find dungeons, trials, and raids.");
+            ImGui.Dummy(new Vector2(size, size));
         }
     }
 
@@ -1737,35 +1519,30 @@ public class StatisticsWindow : Window
 
         foreach (var cfc in contentFinderSheet)
         {
-            // Skip invalid entries
             if (cfc.RowId == 0 || cfc.Content.RowId == 0) continue;
             if (string.IsNullOrEmpty(cfc.Name.ToString())) continue;
 
             var name = cfc.Name.ToString();
-            
-            // Search by name
+
             if (name.ToLower().Contains(query))
             {
-                var result = new ZoneSearchResult
+                zoneSearchResults.Add(new ZoneSearchResult
                 {
                     ContentFinderConditionId = cfc.RowId,
                     TerritoryId = cfc.TerritoryType.RowId,
                     Name = name,
                     ContentType = GetContentTypeName(cfc.ContentType.RowId),
                     ItemLevel = cfc.ItemLevelRequired
-                };
-
-                zoneSearchResults.Add(result);
+                });
             }
         }
 
-        // Sort by name
         zoneSearchResults = zoneSearchResults.OrderBy(r => r.Name).ToList();
-        
+
         Plugin.Log.Info($"Zone search for '{zoneSearchQuery}' found {zoneSearchResults.Count} results");
     }
 
-    private string GetContentTypeName(uint contentTypeId)
+    private static string GetContentTypeName(uint contentTypeId)
     {
         return contentTypeId switch
         {
@@ -1784,7 +1561,6 @@ public class StatisticsWindow : Window
 
     private void LoadZoneLootTable(uint contentFinderConditionId)
     {
-        // This will trigger the loot table window to load the specific zone
         Plugin.Log.Info($"Loading loot table for ContentFinderCondition {contentFinderConditionId}");
         plugin.LootTableWindow.LoadZoneById(contentFinderConditionId);
     }
@@ -1800,7 +1576,6 @@ public class StatisticsWindow : Window
 
     public override void Dispose()
     {
-        // Cleanup if needed
+        iconCache.Clear();
     }
 }
-

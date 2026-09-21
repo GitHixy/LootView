@@ -1,40 +1,75 @@
-<svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background -->
-  <rect width="256" height="256" rx="40" fill="#1a1a2e"/>
-  
-  <!-- Treasure Chest Base -->
-  <rect x="58" y="140" width="140" height="80" rx="8" fill="#8B4513"/>
-  <rect x="63" y="145" width="130" height="70" rx="6" fill="#A0522D"/>
-  
-  <!-- Chest Lock -->
-  <circle cx="128" cy="180" r="15" fill="#FFD700"/>
-  <circle cx="128" cy="180" r="10" fill="#1a1a2e"/>
-  
-  <!-- Chest Lid -->
-  <path d="M 58 140 Q 128 100 198 140" fill="#654321"/>
-  <path d="M 63 140 Q 128 105 193 140" fill="#8B4513"/>
-  
-  <!-- Lid Details -->
-  <rect x="123" y="105" width="10" height="40" rx="3" fill="#FFD700"/>
-  
-  <!-- Sparkles -->
-  <circle cx="90" cy="100" r="4" fill="#FFD700" opacity="0.8"/>
-  <circle cx="110" cy="85" r="3" fill="#FFD700" opacity="0.9"/>
-  <circle cx="145" cy="90" r="5" fill="#FFD700" opacity="0.7"/>
-  <circle cx="165" cy="105" r="3" fill="#FFD700" opacity="0.8"/>
-  
-  <!-- More sparkles -->
-  <circle cx="75" cy="120" r="3" fill="#FFF" opacity="0.6"/>
-  <circle cx="180" cy="125" r="4" fill="#FFF" opacity="0.5"/>
-  
-  <!-- Glow effect -->
-  <ellipse cx="128" cy="130" rx="70" ry="15" fill="#FFD700" opacity="0.2"/>
-  
-  <!-- Gold coins spilling -->
-  <circle cx="70" cy="215" r="8" fill="#FFD700"/>
-  <circle cx="85" cy="220" r="7" fill="#FFA500"/>
-  <circle cx="95" cy="210" r="6" fill="#FFD700"/>
-  <circle cx="160" cy="218" r="7" fill="#FFD700"/>
-  <circle cx="175" cy="213" r="8" fill="#FFA500"/>
-  <circle cx="185" cy="222" r="6" fill="#FFD700"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>LootView</title>
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#182133"/>
+      <stop offset="1" stop-color="#060910"/>
+    </linearGradient>
+    <linearGradient id="topGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6FB8E0" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#6FB8E0" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="goldPool" cx="0.28" cy="0.96" r="0.66">
+      <stop offset="0" stop-color="#D6B068" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#D6B068" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.46">
+      <stop offset="0" stop-color="#D6B068" stop-opacity="0.50"/>
+      <stop offset="1" stop-color="#D6B068" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="panelClip">
+      <rect width="512" height="512" rx="104"/>
+    </clipPath>
+  </defs>
+
+  <!-- Panel: the deep-navy glass every LootView window is built from -->
+  <g clip-path="url(#panelClip)">
+    <rect width="512" height="512" fill="url(#panel)"/>
+    <rect width="512" height="266" fill="url(#topGlow)"/>
+    <rect width="512" height="512" fill="url(#goldPool)"/>
+    <rect width="512" height="512" fill="url(#halo)"/>
+  </g>
+
+  <!-- Brass frame and corner filigree -->
+  <rect x="36" y="36" width="440" height="440"
+        rx="72" fill="none" stroke="#D6B068" stroke-opacity="0.50" stroke-width="3.5"/>
+  <g fill="none" stroke="#F2D796" stroke-opacity="0.78" stroke-width="5.0"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 57.6 91.6 L 57.6 57.6 L 91.6 57.6"/>
+    <path d="M 454.4 91.6 L 454.4 57.6 L 420.4 57.6"/>
+    <path d="M 57.6 420.4 L 57.6 454.4 L 91.6 454.4"/>
+    <path d="M 454.4 420.4 L 454.4 454.4 L 420.4 454.4"/>
+  </g>
+
+  <!-- The aetheryte crest, cut into gem facets -->
+  <g>
+    <polygon points="256.0,98.0 135.0,256.0 200.3,256.0" fill="#E6C882"/>
+    <polygon points="256.0,98.0 200.3,256.0 256.0,256.0" fill="#FFF3D2"/>
+    <polygon points="256.0,98.0 256.0,256.0 311.7,256.0" fill="#DFB96E"/>
+    <polygon points="256.0,98.0 311.7,256.0 377.0,256.0" fill="#BE9650"/>
+    <polygon points="256.0,414.0 135.0,256.0 200.3,256.0" fill="#AD8845"/>
+    <polygon points="256.0,414.0 200.3,256.0 256.0,256.0" fill="#CDA860"/>
+    <polygon points="256.0,414.0 256.0,256.0 311.7,256.0" fill="#9E7F3C"/>
+    <polygon points="256.0,414.0 311.7,256.0 377.0,256.0" fill="#6B5326"/>
+    <g stroke="#5A461E" stroke-opacity="0.45" stroke-width="1.8">
+      <line x1="256.0" y1="98.0" x2="200.3" y2="256.0"/>
+      <line x1="256.0" y1="98.0" x2="256.0" y2="256.0"/>
+      <line x1="256.0" y1="98.0" x2="311.7" y2="256.0"/>
+      <line x1="256.0" y1="414.0" x2="200.3" y2="256.0"/>
+      <line x1="256.0" y1="414.0" x2="256.0" y2="256.0"/>
+      <line x1="256.0" y1="414.0" x2="311.7" y2="256.0"/>
+      <line x1="135.0" y1="256.0" x2="377.0" y2="256.0"/>
+    </g>
+    <polygon points="256.0,98.0 377.0,256.0 256.0,414.0 135.0,256.0"
+             fill="#FFFFFF" opacity="0.0"/>
+    <polygon points="247.0,124.0 212.0,172.0 230.0,184.0 259.0,140.0" fill="#FFFFFF" opacity="0.30"/>
+    <polygon points="256.0,98.0 377.0,256.0 256.0,414.0 135.0,256.0"
+             fill="none" stroke="#F2D796" stroke-width="4" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Motes, echoing the overlay's drop particles -->
+  <g opacity="0.92"><polygon points="116.0,136.0 118.2,147.8 130.0,150.0 118.2,152.2 116.0,164.0 113.8,152.2 102.0,150.0 113.8,147.8" fill="#F2D796"/><circle cx="116.0" cy="150.0" r="2.80" fill="#FFFFFF"/></g>
+  <g opacity="0.70"><polygon points="398.0,177.0 399.4,184.6 407.0,186.0 399.4,187.4 398.0,195.0 396.6,187.4 389.0,186.0 396.6,184.6" fill="#F2D796"/><circle cx="398.0" cy="186.0" r="1.80" fill="#FFFFFF"/></g>
+  <g opacity="0.58"><polygon points="140.0,358.0 141.3,364.7 148.0,366.0 141.3,367.3 140.0,374.0 138.7,367.3 132.0,366.0 138.7,364.7" fill="#F2D796"/><circle cx="140.0" cy="366.0" r="1.60" fill="#FFFFFF"/></g>
+  <g opacity="0.80"><polygon points="392.0,338.0 393.9,348.1 404.0,350.0 393.9,351.9 392.0,362.0 390.1,351.9 380.0,350.0 390.1,348.1" fill="#F2D796"/><circle cx="392.0" cy="350.0" r="2.40" fill="#FFFFFF"/></g>
 </svg>

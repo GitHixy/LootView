@@ -14,6 +14,12 @@ public class ConfigurationService : IDisposable
     private readonly string configFilePath;
     private Configuration configuration;
 
+    /// <summary>
+    /// True when no configuration file existed on disk, i.e. this is a first install.
+    /// Used to keep the release notes from greeting brand-new users.
+    /// </summary>
+    public bool IsNewConfiguration { get; private set; }
+
     public Configuration Configuration
     {
         get
@@ -68,6 +74,7 @@ public class ConfigurationService : IDisposable
         }
 
         Plugin.Log.Info("Creating new configuration");
+        IsNewConfiguration = true;
         return new Configuration();
     }
 

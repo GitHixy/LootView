@@ -5,72 +5,89 @@ using System.Collections.Generic;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
-using Dalamud.Interface.Components;
 using LootView.Models;
+using LootView.UI;
 
 namespace LootView.Windows;
 
 /// <summary>
-/// Main loot display window - shows loot in a fancy customizable way
+/// Main loot display window - the live feed of everything that dropped.
 /// </summary>
 public class LootWindow : Window
 {
+    private const float RowHeight = 34f;
+    private const float IconSize = 24f;
+    private const float HighlightSeconds = 2.5f;
+
+    /// <summary>Horizontal padding inside the quantity chip.</summary>
+    private const float ChipPadding = 6f;
+
+    /// <summary>Breathing room between the quantity chip and the player column.</summary>
+    private const float QtyGutter = 14f;
+
+    /// <summary>Ko-fi's brand blue, the one exception to the Eorzean palette.</summary>
+    private static readonly Vector4 KofiBlue = new(0.13f, 0.59f, 0.95f, 1.0f);
+
     private readonly Plugin plugin;
     private readonly List<ParticleEffect> particles = new();
     private readonly Random random = new();
     private DateTime lastUpdate = DateTime.Now;
     private readonly Dictionary<Guid, bool> particlesSpawned = new(); // Track which items have spawned particles
 
-    public LootWindow(Plugin plugin) : base("LootView - Tracker by GitHixy###LootViewMain")
+    public LootWindow(Plugin plugin) : base("LootView###LootViewMain")
     {
         this.plugin = plugin;
-        
+
         // Set initial visibility from config
         IsOpen = plugin.ConfigService.Configuration.IsVisible;
-        
+
         // Set window constraints
-        SizeConstraintMin = new Vector2(400, 300);
+        SizeConstraintMin = new Vector2(430, 260);
         SizeConstraintMax = new Vector2(1200, 900);
-        Size = new Vector2(600, 400);
-        
+        Size = new Vector2(620, 430);
+
         // Set initial window flags based on lock state
         UpdateWindowFlags();
     }
-    
+
+    /// <summary>
+    /// The overlay belongs to a character, so it stays hidden on the title and
+    /// character-select screens and comes back once login completes.
+    /// </summary>
+    protected override bool ShouldDraw => Plugin.ClientState.IsLoggedIn;
+
     private void UpdateWindowFlags()
     {
         var config = plugin.ConfigService.Configuration;
-        
-        // Start with base flags
-        WindowFlags = ImGuiWindowFlags.None;
-        
-        // Add lock flags if enabled
+
+        WindowFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+
         if (config.LockWindowPosition)
         {
             WindowFlags |= ImGuiWindowFlags.NoMove;
         }
-        
+
         if (config.LockWindowSize)
         {
             WindowFlags |= ImGuiWindowFlags.NoResize;
         }
     }
-    
+
     private bool IsInDuty()
     {
         try
         {
             var territoryId = Plugin.ClientState.TerritoryType;
             if (territoryId == 0) return false;
-            
+
             var territorySheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
             if (territorySheet == null) return false;
-            
+
             if (territorySheet.TryGetRow(territoryId, out var territory))
             {
                 return territory.ContentFinderCondition.RowId > 0;
             }
-            
+
             return false;
         }
         catch
@@ -84,164 +101,31 @@ public class LootWindow : Window
         try
         {
             var config = plugin.ConfigService.Configuration;
-            
-            // Apply background alpha from configuration
+
             BgAlpha = config.BackgroundAlpha;
-            
-            // Update particle system
+
             if (config.EnableParticleEffects)
             {
                 UpdateParticles();
             }
-            
-            // Controls - Left side
-            bool showOnlyMyLoot = config.ShowOnlyOwnLoot;
-            if (ImGui.Checkbox("Show Only My Loot", ref showOnlyMyLoot))
-            {
-                config.ShowOnlyOwnLoot = showOnlyMyLoot;
-                config.ShowOnlyMyLoot = showOnlyMyLoot; // Sync both properties
-                plugin.ConfigService.Save();
-            }
-            
-            // Style selector on left
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(100);
-            var styleNames = Enum.GetNames(typeof(LootWindowStyle));
-            var currentStyle = (int)config.WindowStyle;
-            if (ImGui.Combo("##Style", ref currentStyle, styleNames, styleNames.Length))
-            {
-                config.WindowStyle = (LootWindowStyle)currentStyle;
-                plugin.ConfigService.Save();
-            }
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip("Change visual style");
-            }
-            
-            // Right side buttons - Clear, Stats, Lock, [Table], Config
-            // Check if we're in a duty (has ContentFinderCondition)
-            var isInDuty = IsInDuty();
-            
-            ImGui.SameLine();
-            var availableWidth = ImGui.GetContentRegionAvail().X;
-            var iconButtonWidth = 30f; // Icon buttons (Stats, Lock, [Table], Config)
-            var clearButtonWidth = 70f; // "Clear All" button width
-            var spacing = ImGui.GetStyle().ItemSpacing.X;
-            
-            // Calculate button count: base 4 (Stats, Lock, Config, Ko-fi) + 1 if in duty (Table)
-            var buttonCount = isInDuty ? 5 : 4;
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + availableWidth - clearButtonWidth - (iconButtonWidth * buttonCount) - (spacing * buttonCount));
-            
-            // Clear All button
-            if (ImGui.Button("Clear All", new Vector2(clearButtonWidth, 0)))
-            {
-                plugin.LootTracker.ClearLoot();
-            }
-            
-            // Stats button
-            ImGui.SameLine();
-            if (ImGuiComponents.IconButton("StatsButton", FontAwesomeIcon.ChartLine, new Vector2(iconButtonWidth, 0)))
-            {
-                plugin.StatisticsWindow.IsOpen = true;
-            }
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip("Open Statistics & History");
-            }
-            
-            // Lock/Unlock button
-            ImGui.SameLine();
-            var isLocked = config.LockWindowPosition;
-            var lockIcon = isLocked ? FontAwesomeIcon.Lock : FontAwesomeIcon.LockOpen;
-            if (ImGuiComponents.IconButton("LockButton", lockIcon, new Vector2(iconButtonWidth, 0)))
-            {
-                config.LockWindowPosition = !config.LockWindowPosition;
-                config.LockWindowSize = config.LockWindowPosition;
-                plugin.ConfigService.Save();
-                UpdateWindowFlags();
-            }
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip(isLocked ? "Unlock window" : "Lock window position and size");
-            }
-            
-            // Loot Table button (only show in duties/instances)
-            if (isInDuty)
-            {
-                ImGui.SameLine();
-                if (ImGuiComponents.IconButton("LootTableButton", FontAwesomeIcon.Table, new Vector2(iconButtonWidth, 0)))
-                {
-                    plugin.LootTableWindow.IsOpen = true;
-                    plugin.LootTableWindow.LoadCurrentZone();
-                }
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Show Duty Loot Table");
-                }
-            }
-            
-            // Config button
-            ImGui.SameLine();
-            if (ImGuiComponents.IconButton("ConfigButton", FontAwesomeIcon.Cog, new Vector2(iconButtonWidth, 0)))
-            {
-                plugin.ConfigWindow.IsOpen = true;
-            }
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip("Open Settings");
-            }
-            
-            // Ko-fi donation button
-            ImGui.SameLine();
-            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.13f, 0.59f, 0.95f, 1.0f)); // Ko-fi blue
-            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.16f, 0.65f, 1.0f, 1.0f));
-            ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.10f, 0.53f, 0.85f, 1.0f));
-            if (ImGuiComponents.IconButton("KofiButton", FontAwesomeIcon.Coffee, new Vector2(iconButtonWidth, 0)))
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "https://ko-fi.com/hixyllian",
-                    UseShellExecute = true
-                });
-            }
-            ImGui.PopStyleColor(3);
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip("☕ Support development - Buy me a coffee!\nClick to open Ko-fi page");
-            }
-            
-            ImGui.Separator();
-            
-            // Loot display
+
             var lootItems = plugin.LootTracker.GetFilteredLoot().ToList();
-            
+
+            DrawToolbar(config);
+            DrawValueStrip(config, lootItems);
+
             if (lootItems.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "No loot to display. Items will appear here when you loot them!");
+                Theme.EmptyState(
+                    FontAwesomeIcon.Gem,
+                    "No loot yet",
+                    "Items you and your party obtain will appear here.");
             }
             else
             {
-                ImGui.Text($"Total Items: {lootItems.Count}");
-                ImGui.Separator();
-                
-                // Render based on selected style
-                switch (config.WindowStyle)
-                {
-                    case LootWindowStyle.Classic:
-                        DrawClassicStyle(lootItems);
-                        break;
-                    case LootWindowStyle.Compact:
-                        DrawCompactStyle(lootItems);
-                        break;
-                    case LootWindowStyle.Neon:
-                        DrawNeonStyle(lootItems);
-                        break;
-                    default:
-                        DrawClassicStyle(lootItems);
-                        break;
-                }
+                DrawLootList(lootItems);
             }
-            
+
             // Draw particles on top of everything
             if (config.EnableParticleEffects)
             {
@@ -251,572 +135,735 @@ public class LootWindow : Window
         catch (Exception ex)
         {
             Plugin.Log.Error(ex, "Error drawing loot window");
-            ImGui.TextColored(new Vector4(1, 0, 0, 1), "Error displaying loot!");
+            ImGui.TextColored(Theme.Bad, "Error displaying loot!");
         }
     }
 
-    private void DrawClassicStyle(System.Collections.Generic.List<LootItem> lootItems)
+    // ============================================================================
+    // HEADER
+    // ============================================================================
+
+    private void DrawToolbar(Configuration config)
     {
-        // Classic table layout - the original style
-        if (ImGui.BeginChild("LootItemsChild"))
+        var dl = ImGui.GetWindowDrawList();
+        var origin = ImGui.GetCursorScreenPos();
+        const float barHeight = 30f;
+
+        // --- Wordmark -------------------------------------------------
+        var crest = new Vector2(origin.X + 11f, origin.Y + barHeight * 0.5f);
+        DrawCrest(dl, crest, 11f);
+
+        // Drawn rather than laid out so the byline can sit on the title's baseline.
+        ImGui.SetWindowFontScale(1.1f);
+        var titleSize = ImGui.CalcTextSize("LootView");
+        var titleTop = origin.Y + (barHeight - titleSize.Y) * 0.5f;
+        dl.AddText(new Vector2(origin.X + 29f, titleTop), Theme.U32(Theme.GoldBright), "LootView");
+
+        ImGui.SetWindowFontScale(0.85f);
+        var bylineSize = ImGui.CalcTextSize("by GitHixy");
+        dl.AddText(
+            new Vector2(origin.X + 29f + titleSize.X + 7f, titleTop + titleSize.Y - bylineSize.Y - 1f),
+            Theme.U32(Theme.TextFaint), "by GitHixy");
+        ImGui.SetWindowFontScale(1f);
+
+        // --- Action cluster, right aligned ----------------------------
+        var isInDuty = IsInDuty();
+        const float btn = 28f;
+        const float gap = 4f;
+        var buttonCount = isInDuty ? 7 : 6;
+        var clusterWidth = buttonCount * btn + (buttonCount - 1) * gap;
+
+        var right = origin.X + ImGui.GetContentRegionAvail().X;
+        var x = right - clusterWidth;
+        var y = origin.Y + (barHeight - btn) * 0.5f;
+
+        using (ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(gap, gap)))
         {
-            if (ImGui.BeginTable("LootTable", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+            ImGui.SetCursorScreenPos(new Vector2(x, y));
+
+            // Filter: only my loot
+            var onlyMine = config.ShowOnlyOwnLoot;
+            if (Theme.IconButton("##FilterOwn", onlyMine ? FontAwesomeIcon.User : FontAwesomeIcon.Users,
+                    onlyMine ? "Showing only your loot - click to show everyone's" : "Showing all party loot - click to show only yours",
+                    Theme.Gold, onlyMine, btn))
             {
-                ImGui.TableSetupColumn("Icon", ImGuiTableColumnFlags.WidthFixed, 28);
-                ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Quantity", ImGuiTableColumnFlags.WidthFixed, 80);
-                ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 80);
-                ImGui.TableHeadersRow();
-                
-                foreach (var item in lootItems)
-                {
-                    ImGui.TableNextRow();
-                    var age = (DateTime.Now - item.Timestamp).TotalSeconds;
-                    if (age < 3.0)
-                    {
-                        var fadeOut = 1.0 - age / 3.0;
-                        var pulse = 0.6 + 0.4 * Math.Sin(age * 8.0);
-                        var alpha = (float)(0.6 * fadeOut * pulse);
-                        var highlightColor = new Vector4(1.0f, 0.9f, 0.4f, alpha);
-                        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(highlightColor));
-                    }
-                    
-                    ImGui.TableSetColumnIndex(0);
-                    
-                    // Get icon position BEFORE rendering
-                    var iconScreenPos = ImGui.GetCursorScreenPos();
-                    
-                    RenderIcon(item, new Vector2(20, 20));
-                    
-                    // Spawn particles for new items at the icon position
-                    if (age < 0.1 && plugin.ConfigService.Configuration.EnableParticleEffects)
-                    {
-                        // Use screen coordinates directly, add offset to center of icon
-                        SpawnParticlesForItem(item, iconScreenPos + new Vector2(10, 10));
-                    }
-                    
-                    // Show tooltip on hover
-                    if (ImGui.IsItemHovered())
-                    {
-                        ShowItemTooltip(item);
-                    }
-                    
-                    // Check for right-click on icon
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                    {
-                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                    }
-                    
-                    ImGui.TableSetColumnIndex(1);
-                    var nameColor = GetRarityColor(item.Rarity);
-                    ImGui.TextColored(nameColor, ToTitleCase(item.ItemName));
-                    if (item.IsHQ)
-                    {
-                        ImGui.SameLine();
-                        ImGui.TextColored(new Vector4(1.0f, 0.9f, 0.3f, 1.0f), "HQ");
-                    }
-                    
-                    // Show tooltip on name hover too
-                    if (ImGui.IsItemHovered())
-                    {
-                        ShowItemTooltip(item);
-                    }
-                    
-                    // Check for right-click on name
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                    {
-                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                    }
-                    
-                    ImGui.TableSetColumnIndex(2);
-                    ImGui.Text($"x{item.Quantity}");
-                    
-                    // Check for right-click on quantity
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                    {
-                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                    }
-                    
-                    ImGui.TableSetColumnIndex(3);
-                    var playerColor = item.IsOwnLoot ? new Vector4(0.2f, 1.0f, 0.2f, 1.0f) : new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-                    ImGui.TextColored(playerColor, item.PlayerName);
-                    
-                    // Check for right-click on player name
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                    {
-                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                    }
-                    
-                    ImGui.TableSetColumnIndex(4);
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), FormatTimeAgo(item.Timestamp));
-                    
-                    // Check for right-click on time
-                    if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                    {
-                        ImGui.OpenPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                    }
-                    
-                    // Right-click context menu for blacklist management
-                    if (ImGui.BeginPopup($"##ItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
-                    {
-                        var config = plugin.ConfigService.Configuration;
-                        bool isBlacklisted = config.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
-                        
-                        if (isBlacklisted)
-                        {
-                            if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
-                            {
-                                if (config.BlacklistedItemIds != null)
-                                {
-                                    config.BlacklistedItemIds.Remove(item.ItemId);
-                                    plugin.ConfigService.Save();
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
-                            {
-                                if (config.BlacklistedItemIds == null)
-                                {
-                                    config.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
-                                }
-                                if (!config.BlacklistedItemIds.Contains(item.ItemId))
-                                {
-                                    config.BlacklistedItemIds.Add(item.ItemId);
-                                    plugin.ConfigService.Save();
-                                }
-                            }
-                        }
-                        
-                        ImGui.EndPopup();
-                    }
-                }
-                
-                ImGui.EndTable();
+                config.ShowOnlyOwnLoot = !onlyMine;
+                config.ShowOnlyMyLoot = config.ShowOnlyOwnLoot; // Sync both properties
+                plugin.ConfigService.Save();
             }
-            ImGui.EndChild();
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##ClearAll", FontAwesomeIcon.Broom, "Clear the current list", Theme.Bad, false, btn))
+            {
+                plugin.LootTracker.ClearLoot();
+            }
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##Stats", FontAwesomeIcon.ChartLine, "Statistics & history", Theme.Crystal, false, btn))
+            {
+                plugin.StatisticsWindow.IsOpen = true;
+            }
+
+            if (isInDuty)
+            {
+                ImGui.SameLine();
+                if (Theme.IconButton("##LootTable", FontAwesomeIcon.Table, "Loot table for this duty", Theme.Crystal, false, btn))
+                {
+                    plugin.LootTableWindow.IsOpen = true;
+                    plugin.LootTableWindow.LoadCurrentZone();
+                }
+            }
+
+            ImGui.SameLine();
+            var isLocked = config.LockWindowPosition;
+            if (Theme.IconButton("##Lock", isLocked ? FontAwesomeIcon.Lock : FontAwesomeIcon.LockOpen,
+                    isLocked ? "Unlock window" : "Lock position and size", Theme.Gold, isLocked, btn))
+            {
+                config.LockWindowPosition = !config.LockWindowPosition;
+                config.LockWindowSize = config.LockWindowPosition;
+                plugin.ConfigService.Save();
+                UpdateWindowFlags();
+            }
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##Config", FontAwesomeIcon.Cog, "Settings", Theme.Crystal, false, btn))
+            {
+                plugin.ConfigWindow.IsOpen = true;
+            }
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##Kofi", FontAwesomeIcon.Coffee, "Support development on Ko-fi", KofiBlue, false, btn))
+            {
+                OpenUrl("https://ko-fi.com/hixyllian");
+            }
         }
+
+        ImGui.SetCursorScreenPos(new Vector2(origin.X, origin.Y + barHeight));
+        ImGui.Dummy(new Vector2(ImGui.GetContentRegionAvail().X, 0));
+        Theme.Rule(4f);
     }
 
-    private void DrawCompactStyle(System.Collections.Generic.List<LootItem> lootItems)
+    /// <summary>The rotated, aetherially-lit diamond used as the plugin's mark.</summary>
+    private static void DrawCrest(ImDrawListPtr dl, Vector2 center, float r)
     {
-        // Compact single-line entries + PROGRESS BAR for item age
+        var pulse = 0.5f + 0.5f * MathF.Sin(Theme.Time * 1.1f);
+
+        dl.AddCircleFilled(center, r * 1.5f, Theme.U32(Theme.Gold, 0.06f + pulse * 0.04f), 24);
+
+        var outer = new[]
+        {
+            new Vector2(center.X, center.Y - r),
+            new Vector2(center.X + r * 0.78f, center.Y),
+            new Vector2(center.X, center.Y + r),
+            new Vector2(center.X - r * 0.78f, center.Y),
+        };
+        dl.AddQuadFilled(outer[0], outer[1], outer[2], outer[3], Theme.U32(Theme.Gold, 0.22f));
+        dl.AddQuad(outer[0], outer[1], outer[2], outer[3], Theme.U32(Theme.Gold, 0.85f), 1.3f);
+
+        var inner = r * 0.42f;
+        dl.AddQuadFilled(
+            new Vector2(center.X, center.Y - inner),
+            new Vector2(center.X + inner * 0.78f, center.Y),
+            new Vector2(center.X, center.Y + inner),
+            new Vector2(center.X - inner * 0.78f, center.Y),
+            Theme.U32(Theme.GoldBright, 0.55f + pulse * 0.45f));
+    }
+
+    /// <summary>
+    /// Running market value of everything in the list, priced on the player's home world.
+    /// Both figures are shown because they answer different questions: the average is what
+    /// items have been selling for, the minimum is what you would have to list at today.
+    /// </summary>
+    private void DrawValueStrip(Configuration config, List<LootItem> lootItems)
+    {
+        if (!config.EnableMarketPrices || lootItems.Count == 0) return;
+
+        var market = plugin.MarketPriceService;
+
+        // Only sellable items are ever requested, so junk never costs a call.
+        var marketable = lootItems.Where(i => market.IsMarketable(i.ItemId)).ToList();
+        if (marketable.Count == 0) return;
+
+        market.RequestPrices(marketable.Select(i => i.ItemId).Distinct());
+
+        double averageTotal = 0, minimumTotal = 0;
+        var priced = 0;    // has sale history, counts toward Avg
+        var listed = 0;    // has a live listing, counts toward Now
+        var unpriced = 0;  // Universalis knows nothing about it
+
+        foreach (var item in marketable)
+        {
+            if (market.TryGetPrice(item.ItemId, out var price) && price.HasData)
+            {
+                var avg = price.Average(item.IsHQ);
+                var min = price.Minimum(item.IsHQ);
+
+                // An item can have sale history but nothing listed right now. Counting
+                // that as zero would quietly understate the second figure, so each total
+                // only sums the items it actually has a price for.
+                if (avg > 0)
+                {
+                    averageTotal += avg * item.Quantity;
+                    priced++;
+                }
+
+                if (min > 0)
+                {
+                    minimumTotal += min * item.Quantity;
+                    listed++;
+                }
+
+                if (avg > 0 || min > 0) continue;
+            }
+
+            unpriced++;
+        }
+
+        var dl = ImGui.GetWindowDrawList();
+        var origin = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+        const float h = 30f;
+        var max = new Vector2(origin.X + width, origin.Y + h);
+
+        dl.AddRectFilled(origin, max, Theme.U32(Theme.Surface, 0.55f), Theme.Radius);
+        dl.AddRectFilledMultiColor(origin, max,
+            Theme.U32(Theme.Gold, 0.10f), Theme.U32(Theme.Gold, 0.02f),
+            Theme.U32(Theme.Gold, 0f), Theme.U32(Theme.Gold, 0.04f));
+        dl.AddRectFilled(new Vector2(origin.X, origin.Y + 5), new Vector2(origin.X + 2.5f, max.Y - 5),
+            Theme.U32(Theme.Gold, 0.9f), 1.5f);
+
+        var textY = origin.Y + (h - ImGui.GetTextLineHeight()) * 0.5f;
+        var x = origin.X + 13f;
+
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            var glyph = FontAwesomeIcon.Coins.ToIconString();
+            dl.AddText(new Vector2(x, textY), Theme.U32(Theme.Gold), glyph);
+            x += ImGui.CalcTextSize(glyph).X + 9f;
+        }
+
+        var busy = market.IsFetching || market.HasWork;
+
+        if (priced == 0)
+        {
+            if (busy || !market.HasWorld)
+            {
+                // A spinner rather than a line of text: the wait is short, and swapping
+                // messages in and out on consecutive frames reads as a flicker.
+                var r = ImGui.GetTextLineHeight() * 0.38f;
+                Theme.DrawSpinner(dl, new Vector2(x + r, textY + ImGui.GetTextLineHeight() * 0.5f), r, 2f, Theme.Gold);
+                dl.AddText(new Vector2(x + r * 2 + 9f, textY), Theme.U32(Theme.TextFaint), "Checking prices");
+            }
+            else
+            {
+                var idle = market.IsPaused
+                    ? "Universalis unavailable, retrying shortly"
+                    : "No market data for these items";
+                dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextFaint), idle);
+            }
+        }
+        else
+        {
+            dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextMuted), "Avg");
+            x += ImGui.CalcTextSize("Avg").X + 7f;
+
+            var avgText = FormatGil(averageTotal);
+            dl.AddText(new Vector2(x, textY), Theme.U32(Theme.GoldBright), avgText);
+            x += ImGui.CalcTextSize(avgText).X + 14f;
+
+            dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextFaint), "|");
+            x += ImGui.CalcTextSize("|").X + 14f;
+
+            dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextMuted), "Now");
+            x += ImGui.CalcTextSize("Now").X + 7f;
+
+            var minText = listed > 0 ? FormatGil(minimumTotal) : "nothing listed";
+            dl.AddText(new Vector2(x, textY),
+                Theme.U32(listed > 0 ? Theme.Crystal : Theme.TextFaint), minText);
+            x += ImGui.CalcTextSize(minText).X;
+        }
+
+        // Right side: the world being priced, and anything we could not price.
+        // Totals are already on screen; a refresh for newly dropped items spins quietly
+        // on the right rather than replacing them.
+        if (priced > 0 && busy)
+        {
+            var r = ImGui.GetTextLineHeight() * 0.36f;
+            Theme.DrawSpinner(dl, new Vector2(x + 14f + r, textY + ImGui.GetTextLineHeight() * 0.5f), r, 1.8f, Theme.Crystal);
+        }
+
+        var notes = new List<string>();
+        if (priced > listed) notes.Add($"{priced - listed} unlisted");
+        if (unpriced > 0) notes.Add($"{unpriced} unpriced");
+        if (!string.IsNullOrEmpty(market.WorldName)) notes.Add(market.WorldName);
+
+        if (notes.Count > 0)
+        {
+            var note = string.Join("  -  ", notes);
+            var nw = ImGui.CalcTextSize(note).X;
+            dl.AddText(new Vector2(max.X - nw - 13f, textY), Theme.U32(Theme.TextFaint), note);
+        }
+
+        ImGui.SetCursorScreenPos(origin);
+        ImGui.Dummy(new Vector2(width, h));
+
+        if (ImGui.IsItemHovered())
+        {
+            Theme.Tooltip(
+                $"Estimated market value on {market.WorldName ?? "your home world"}, via Universalis.\n\n" +
+                $"Avg - what these items have been selling for recently.\n" +
+                $"Now - the cheapest listings currently up.\n\n" +
+                $"{priced} of {marketable.Count} sellable items have sale history; " +
+                $"{listed} have something listed right now.\n" +
+                "Prices are crowd-sourced and exclude the 5% market board tax.");
+        }
+
+        ImGui.Dummy(new Vector2(0, 4));
+    }
+
+    /// <summary>
+    /// Compact gil figure: 840 / 7.9k / 3.51m.
+    /// Both totals sit on one line, so they have to compact at the same threshold - with a
+    /// 10k cutoff and a locale that groups with dots, "14.3k" next to "7.852" read as two
+    /// different kinds of number.
+    /// </summary>
+    private static string FormatGil(double gil)
+    {
+        if (gil >= 1_000_000) return $"{gil / 1_000_000:0.##}m";
+        if (gil >= 1_000) return $"{gil / 1_000:0.#}k";
+        return $"{gil:0}";
+    }
+
+    // ============================================================================
+    // LOOT LIST
+    // ============================================================================
+
+    private void DrawLootList(List<LootItem> lootItems)
+    {
+        var avail = ImGui.GetContentRegionAvail();
+
+        // The header labels sit outside the scrolling child, so they have to account for
+        // the scrollbar up front or the columns drift by its width once the list overflows.
+        var labelRowHeight = ImGui.GetTextLineHeight() + 4f;
+        var contentHeight = lootItems.Count * (RowHeight + 2f);
+        var needsScrollbar = contentHeight > avail.Y - labelRowHeight;
+        var listWidth = Math.Max(avail.X - (needsScrollbar ? ImGui.GetStyle().ScrollbarSize : 0f), 80f);
+
+        // Column geometry, resolved once per frame from the available width.
+        const float accentW = 3f;
+        const float iconX = 12f;
+        const float nameX = iconX + IconSize + 10f;
+        var timeW = 60f;
+
+        // The quantity chip is sized to the widest stack on screen plus a fixed gutter,
+        // so four-digit counts never run into the player column.
+        var widestQty = 0f;
+        foreach (var item in lootItems)
+            widestQty = Math.Max(widestQty, ImGui.CalcTextSize($"x{item.Quantity}").X);
+        var qtyW = Math.Clamp(widestQty + ChipPadding * 2f + QtyGutter, 46f, 110f);
+
+        var playerW = Math.Clamp(listWidth * 0.26f, 70f, 150f);
+        var nameW = Math.Max(listWidth - nameX - timeW - qtyW - playerW - 30f, 60f);
+
+        DrawColumnLabels(nameX, nameW, qtyW, playerW, timeW, listWidth);
+
+        using var child = Theme.Region("LootItemsChild", new Vector2(avail.X, ImGui.GetContentRegionAvail().Y));
+        if (!child) return;
+
+        var dl = ImGui.GetWindowDrawList();
         var config = plugin.ConfigService.Configuration;
-        if (ImGui.BeginChild("LootItemsChild"))
+
+        foreach (var item in lootItems)
         {
-            foreach (var item in lootItems)
+            var rowOrigin = ImGui.GetCursorScreenPos();
+            var rowWidth = listWidth;
+            var rowMax = new Vector2(rowOrigin.X + rowWidth, rowOrigin.Y + RowHeight);
+
+            var age = (DateTime.Now - item.Timestamp).TotalSeconds;
+            var isNew = age < HighlightSeconds;
+            var rarityColor = Theme.RarityColor(item.Rarity);
+
+            // Hit area first so the visuals below never steal hover from the row.
+            var id = $"##row_{item.Id}";
+            ImGui.InvisibleButton(id, new Vector2(rowWidth, RowHeight));
+            var hovered = ImGui.IsItemHovered();
+
+            if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                ImGui.OpenPopup($"##ctx_{item.Id}");
+
+            // --- Row background ---------------------------------------
+            if (hovered)
             {
-                var age = (DateTime.Now - item.Timestamp).TotalSeconds;
-                if (age < 3.0)
-                {
-                    var fadeOut = 1.0 - age / 3.0;
-                    var alpha = (float)(0.3 * fadeOut) * config.BackgroundAlpha;
-                    ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(1.0f, 0.9f, 0.4f, alpha));
-                    ImGui.BeginChild($"##highlight_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, 26), false);
-                    ImGui.EndChild();
-                    ImGui.PopStyleColor();
-                    ImGui.SetCursorPosY(ImGui.GetCursorPosY() - 26);
-                }
-                
-                // Get icon position BEFORE rendering
-                var iconScreenPos = ImGui.GetCursorScreenPos();
-                
-                RenderIcon(item, new Vector2(18, 18));
-                
-                // Spawn particles for new items at the icon position
-                if (age < 0.1 && plugin.ConfigService.Configuration.EnableParticleEffects)
-                {
-                    // Use screen coordinates directly, add offset to center of icon
-                    SpawnParticlesForItem(item, iconScreenPos + new Vector2(9, 9));
-                }
-                
-                // Show tooltip on icon hover
-                if (ImGui.IsItemHovered())
-                {
-                    ShowItemTooltip(item);
-                }
-                
-                ImGui.SameLine();
-                
-                var nameColor = GetRarityColor(item.Rarity);
-                ImGui.TextColored(nameColor, ToTitleCase(item.ItemName));
-                
-                // Show tooltip on name hover
-                if (ImGui.IsItemHovered())
-                {
-                    ShowItemTooltip(item);
-                }
-                
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1.0f), $"x{item.Quantity}");
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), $"• {FormatTimeAgo(item.Timestamp)}");
-                
-                // Tiny progress bar showing item freshness (fades over 10 minutes)
-                var freshness = Math.Max(0, 1.0 - age / 600.0); // 10 minutes
-                if (freshness > 0)
-                {
-                    ImGui.SameLine();
-                    ImGui.SetCursorPosX(ImGui.GetContentRegionAvail().X + ImGui.GetCursorPosX() - 50);
-                    ImGui.PushStyleColor(ImGuiCol.PlotHistogram, new Vector4(0.3f, 0.7f, 1.0f, 0.6f));
-                    ImGui.ProgressBar((float)freshness, new Vector2(45, 3), "");
-                    ImGui.PopStyleColor();
-                }
-                
-                // Right-click context menu for blacklist management
-                // Add invisible button covering the item row to detect right-clicks
-                ImGui.SetCursorPosY(ImGui.GetCursorPosY() - ImGui.GetTextLineHeightWithSpacing());
-                ImGui.InvisibleButton($"##CompactItemRow_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetTextLineHeightWithSpacing()));
-                
-                if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                {
-                    ImGui.OpenPopup($"##CompactContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                }
-                
-                if (ImGui.BeginPopup($"##CompactContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
-                {
-                    var configInner = plugin.ConfigService.Configuration;
-                    bool isBlacklisted = configInner.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
-                    
-                    if (isBlacklisted)
-                    {
-                        if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
-                        {
-                            if (configInner.BlacklistedItemIds != null)
-                            {
-                                configInner.BlacklistedItemIds.Remove(item.ItemId);
-                                plugin.ConfigService.Save();
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
-                        {
-                            if (configInner.BlacklistedItemIds == null)
-                            {
-                                configInner.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
-                            }
-                            if (!configInner.BlacklistedItemIds.Contains(item.ItemId))
-                            {
-                                configInner.BlacklistedItemIds.Add(item.ItemId);
-                                plugin.ConfigService.Save();
-                            }
-                        }
-                    }
-                    
-                    ImGui.EndPopup();
-                }
+                dl.AddRectFilled(rowOrigin, rowMax, Theme.U32(Theme.SurfaceHover, 0.75f), Theme.Radius);
             }
-            ImGui.EndChild();
+            else
+            {
+                dl.AddRectFilled(rowOrigin, rowMax, Theme.U32(Theme.Surface, 0.42f), Theme.Radius);
+            }
+
+            if (isNew)
+            {
+                // A brass sweep travels across the row once, then settles into a fade.
+                var t = (float)(age / HighlightSeconds);
+                var fade = 1f - t;
+
+                dl.AddRectFilled(rowOrigin, rowMax, Theme.U32(Theme.Gold, 0.13f * fade), Theme.Radius);
+
+                var sweep = rowOrigin.X + rowWidth * Math.Min(t * 1.8f, 1f);
+                var tail = Math.Max(sweep - rowWidth * 0.32f, rowOrigin.X);
+                dl.AddRectFilledMultiColor(
+                    new Vector2(tail, rowOrigin.Y), new Vector2(sweep, rowMax.Y),
+                    Theme.U32(Theme.GoldBright, 0f), Theme.U32(Theme.GoldBright, 0.18f * fade),
+                    Theme.U32(Theme.GoldBright, 0.18f * fade), Theme.U32(Theme.GoldBright, 0f));
+
+                dl.AddRect(rowOrigin, rowMax, Theme.U32(Theme.Gold, 0.55f * fade), Theme.Radius, ImDrawFlags.None, 1f);
+            }
+
+            // Rarity spine on the leading edge.
+            dl.AddRectFilled(
+                new Vector2(rowOrigin.X, rowOrigin.Y + 5),
+                new Vector2(rowOrigin.X + accentW, rowMax.Y - 5),
+                Theme.U32(rarityColor, isNew ? 1f : 0.8f), 1.5f);
+
+            // --- Icon --------------------------------------------------
+            var iconPos = new Vector2(rowOrigin.X + iconX, rowOrigin.Y + (RowHeight - IconSize) * 0.5f);
+            DrawItemIcon(dl, item, iconPos, rarityColor, isNew);
+
+            if (age < 0.1 && config.EnableParticleEffects)
+            {
+                SpawnParticlesForItem(item, iconPos + new Vector2(IconSize * 0.5f, IconSize * 0.5f));
+            }
+
+            // --- Name + HQ --------------------------------------------
+            var textY = rowOrigin.Y + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
+            var namePos = new Vector2(rowOrigin.X + nameX, textY);
+            var name = ToTitleCase(item.ItemName);
+
+            var hqWidth = item.IsHQ ? 20f : 0f;
+            DrawClipped(dl, namePos, nameW - hqWidth, name, Theme.U32(rarityColor));
+
+            if (item.IsHQ)
+            {
+                var nameWidth = Math.Min(ImGui.CalcTextSize(name).X, nameW - hqWidth);
+                DrawHqMark(dl, new Vector2(namePos.X + nameWidth + 6, textY));
+            }
+
+            // --- Quantity ----------------------------------------------
+            var qtyX = rowOrigin.X + nameX + nameW + 8;
+            if (item.Quantity > 1)
+            {
+                var qty = $"x{item.Quantity}";
+                var qs = ImGui.CalcTextSize(qty);
+                var chipMin = new Vector2(qtyX, rowOrigin.Y + (RowHeight - qs.Y - 5) * 0.5f);
+                var chipMax = new Vector2(chipMin.X + qs.X + ChipPadding * 2f, chipMin.Y + qs.Y + 5);
+                dl.AddRectFilled(chipMin, chipMax, Theme.U32(Theme.Crystal, 0.16f), (chipMax.Y - chipMin.Y) * 0.5f);
+                dl.AddText(new Vector2(chipMin.X + ChipPadding, chipMin.Y + 2.5f), Theme.U32(Theme.CrystalBright), qty);
+            }
+            else
+            {
+                dl.AddText(new Vector2(qtyX + ChipPadding, textY), Theme.U32(Theme.TextFaint), "x1");
+            }
+
+            // --- Player -------------------------------------------------
+            var playerX = qtyX + qtyW;
+            var playerColor = item.IsOwnLoot ? Theme.Good : Theme.TextMuted;
+            DrawClipped(dl, new Vector2(playerX, textY), playerW - 8, item.PlayerName, Theme.U32(playerColor));
+
+            // --- Time ---------------------------------------------------
+            var timeText = FormatTimeAgo(item.Timestamp);
+            var tw = ImGui.CalcTextSize(timeText).X;
+            dl.AddText(new Vector2(rowMax.X - tw - 8, textY), Theme.U32(Theme.TextFaint), timeText);
+
+            if (hovered)
+                ShowItemTooltip(item);
+
+            DrawItemContextMenu(item);
+
+            ImGui.Dummy(new Vector2(0, 2));
         }
     }
 
-    private void DrawNeonStyle(System.Collections.Generic.List<LootItem> lootItems)
+    private static void DrawColumnLabels(float nameX, float nameW, float qtyW, float playerW, float timeW, float listWidth)
     {
-        // Cyberpunk/tech aesthetic with neon colors + SCANLINE EFFECT
-        var config = plugin.ConfigService.Configuration;
-        if (ImGui.BeginChild("LootItemsChild"))
-        {
-            var time = DateTime.Now.TimeOfDay.TotalSeconds;
-            
-            foreach (var item in lootItems)
-            {
-                var age = (DateTime.Now - item.Timestamp).TotalSeconds;
-                var glowPulse = age < 5.0 ? (float)(Math.Sin(age * 5.0) * 0.5 + 0.5) * (1.0 - age / 5.0) : 0f;
-                
-                var bgAlpha = config.BackgroundAlpha;
-                var bgColor = new Vector4(0.05f, 0.05f, 0.15f, bgAlpha);
-                var borderColor = new Vector4(0.0f, (float)(0.8f + glowPulse * 0.2f), 1.0f, (float)(0.8f + glowPulse * 0.2f));
-                
-                ImGui.PushStyleColor(ImGuiCol.ChildBg, bgColor);
-                ImGui.PushStyleColor(ImGuiCol.Border, borderColor);
-                ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, (float)(1.5f + glowPulse * 1.0f));
-                
-                if (ImGui.BeginChild($"##neon_{item.ItemId}_{item.Timestamp.Ticks}", new Vector2(ImGui.GetContentRegionAvail().X, 50), true))
-                {
-                    // CRT Scanline effect
-                    var windowPos = ImGui.GetWindowPos();
-                    var scanlineOffset = (float)((time * 100) % ImGui.GetWindowHeight());
-                    ImGui.GetWindowDrawList().AddLine(
-                        new Vector2(windowPos.X, windowPos.Y + scanlineOffset),
-                        new Vector2(windowPos.X + ImGui.GetWindowWidth(), windowPos.Y + scanlineOffset),
-                        ImGui.GetColorU32(new Vector4(0.0f, 1.0f, 1.0f, 0.1f)),
-                        1.0f
-                    );
-                    
-                    ImGui.SetCursorPos(new Vector2(10, 8));
-                    
-                    // Neon glow effect around icon
-                    if (glowPulse > 0)
-                    {
-                        var glowColor = new Vector4(0.0f, 1.0f, 1.0f, (float)(glowPulse * 0.5f));
-                        var iconPos = ImGui.GetCursorScreenPos();
-                        ImGui.GetWindowDrawList().AddRect(
-                            new Vector2(iconPos.X - 2, iconPos.Y - 2),
-                            new Vector2(iconPos.X + 36, iconPos.Y + 36),
-                            ImGui.GetColorU32(glowColor),
-                            4.0f,
-                            ImDrawFlags.None,
-                            2.0f
-                        );
-                    }
-                    
-                    // Get icon position BEFORE rendering
-                    var iconScreenPos = ImGui.GetCursorScreenPos();
-                    
-                    RenderIcon(item, new Vector2(32, 32));
-                    
-                    // Spawn particles for new items at the icon position
-                    if (age < 0.1 && plugin.ConfigService.Configuration.EnableParticleEffects)
-                    {
-                        // Use screen coordinates directly, add offset to center of icon
-                        SpawnParticlesForItem(item, iconScreenPos + new Vector2(16, 16));
-                    }
-                    
-                    // Show tooltip on icon hover
-                    if (ImGui.IsItemHovered())
-                    {
-                        ShowItemTooltip(item);
-                    }
-                    
-                    ImGui.SameLine();
-                    ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 10);
-                    
-                    ImGui.BeginGroup();
-                    var nameColor = GetRarityColor(item.Rarity);
-                    // Add cyan tint to name
-                    nameColor = new Vector4(
-                        nameColor.X * 0.7f + 0.3f * 0.0f,
-                        nameColor.Y * 0.7f + 0.3f * 1.0f,
-                        nameColor.Z * 0.7f + 0.3f * 1.0f,
-                        1.0f
-                    );
-                    ImGui.TextColored(nameColor, ToTitleCase(item.ItemName).ToUpper());
-                    
-                    // Show tooltip on name hover
-                    if (ImGui.IsItemHovered())
-                    {
-                        ShowItemTooltip(item);
-                    }
-                    
-                    ImGui.TextColored(new Vector4(0.0f, 0.9f, 0.9f, 1.0f), $"[{item.Quantity}x] {item.PlayerName} // {FormatTimeAgo(item.Timestamp)}");
-                    ImGui.EndGroup();
-                }
-                ImGui.EndChild();
-                
-                // Right-click context menu for blacklist management
-                // Check if the child window was right-clicked
-                if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
-                {
-                    ImGui.OpenPopup($"##NeonItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}");
-                }
-                
-                if (ImGui.BeginPopup($"##NeonItemContextMenu_{item.ItemId}_{item.Timestamp.Ticks}"))
-                {
-                    var configInner = plugin.ConfigService.Configuration;
-                    bool isBlacklisted = configInner.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
-                    
-                    if (isBlacklisted)
-                    {
-                        if (ImGui.MenuItem($"Remove '{item.ItemName}' from Blacklist"))
-                        {
-                            if (configInner.BlacklistedItemIds != null)
-                            {
-                                configInner.BlacklistedItemIds.Remove(item.ItemId);
-                                plugin.ConfigService.Save();
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (ImGui.MenuItem($"Add '{item.ItemName}' to Blacklist"))
-                        {
-                            if (configInner.BlacklistedItemIds == null)
-                            {
-                                configInner.BlacklistedItemIds = new System.Collections.Generic.List<uint>();
-                            }
-                            if (!configInner.BlacklistedItemIds.Contains(item.ItemId))
-                            {
-                                configInner.BlacklistedItemIds.Add(item.ItemId);
-                                plugin.ConfigService.Save();
-                            }
-                        }
-                    }
-                    
-                    ImGui.EndPopup();
-                }
-                
-                ImGui.PopStyleVar();
-                ImGui.PopStyleColor(2);
-                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 4);
-            }
-            ImGui.EndChild();
-        }
+        var dl = ImGui.GetWindowDrawList();
+        var p = ImGui.GetCursorScreenPos();
+
+        using var s = new Theme.FontScale(0.85f);
+        var col = Theme.U32(Theme.TextFaint, 0.9f);
+
+        // These offsets mirror the row layout exactly: qtyX = nameX + nameW + 8.
+        dl.AddText(new Vector2(p.X + nameX, p.Y), col, "ITEM");
+        dl.AddText(new Vector2(p.X + nameX + nameW + 8 + ChipPadding, p.Y), col, "QTY");
+        dl.AddText(new Vector2(p.X + nameX + nameW + 8 + qtyW, p.Y), col, "PLAYER");
+
+        var tw = ImGui.CalcTextSize("TIME").X;
+        dl.AddText(new Vector2(p.X + listWidth - tw - 8, p.Y), col, "TIME");
+
+        ImGui.Dummy(new Vector2(listWidth, ImGui.GetTextLineHeight() + 4));
     }
 
-    private void RenderIcon(LootItem item, Vector2 size)
+    /// <summary>Item icon in a beveled, rarity-tinted frame.</summary>
+    private void DrawItemIcon(ImDrawListPtr dl, LootItem item, Vector2 pos, Vector4 rarityColor, bool isNew)
     {
+        var max = pos + new Vector2(IconSize, IconSize);
+
+        // Rarity halo for anything above uncommon, brighter while the drop is fresh.
+        if (item.Rarity >= 3 || isNew)
+        {
+            var glow = isNew ? 0.5f : 0.22f;
+            dl.AddRectFilled(pos - new Vector2(2, 2), max + new Vector2(2, 2), Theme.U32(rarityColor, glow * 0.35f), 5f);
+        }
+
+        dl.AddRectFilled(pos, max, Theme.U32(Theme.Panel, 0.9f), 4f);
+
+        var drawn = false;
         if (item.IconId > 0)
         {
             try
             {
-                var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId)).GetWrapOrDefault();
-                if (iconTexture != null)
+                var tex = Plugin.TextureProvider
+                    .GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId))
+                    .GetWrapOrDefault();
+                if (tex != null)
                 {
-                    ImGui.Image(iconTexture.Handle, size);
-                    return;
+                    dl.AddImage(tex.Handle, pos, max);
+                    drawn = true;
                 }
             }
             catch { /* Ignore icon loading errors */ }
         }
-        
-        // Placeholder
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.2f, 0.2f, 0.2f, 0.3f));
-        ImGui.BeginChild($"##placeholder_{item.ItemId}_{item.Timestamp.Ticks}", size, true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoInputs);
-        ImGui.SetCursorPos(new Vector2(size.X / 2 - 4, size.Y / 2 - 8));
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 0.8f));
-        ImGui.Text("?");
-        ImGui.PopStyleColor();
-        ImGui.EndChild();
-        ImGui.PopStyleColor();
+
+        if (!drawn)
+        {
+            var q = "?";
+            var qs = ImGui.CalcTextSize(q);
+            dl.AddText(new Vector2(pos.X + (IconSize - qs.X) * 0.5f, pos.Y + (IconSize - qs.Y) * 0.5f),
+                Theme.U32(Theme.TextFaint), q);
+        }
+
+        dl.AddRect(pos, max, Theme.U32(rarityColor, item.Rarity >= 2 ? 0.7f : 0.28f), 4f, ImDrawFlags.None, 1f);
     }
 
-    private string FormatTimeAgo(DateTime timestamp)
+    /// <summary>The small gold "HQ" seal the game puts beside high-quality items.</summary>
+    private static void DrawHqMark(ImDrawListPtr dl, Vector2 pos)
+    {
+        var h = ImGui.GetTextLineHeight();
+        var size = new Vector2(18, h);
+        var max = pos + size;
+        dl.AddRectFilled(pos, max, Theme.U32(Theme.Warn, 0.2f), 3f);
+        dl.AddRect(pos, max, Theme.U32(Theme.Warn, 0.6f), 3f, ImDrawFlags.None, 1f);
+
+        using var s = new Theme.FontScale(0.8f);
+        var ts = ImGui.CalcTextSize("HQ");
+        dl.AddText(new Vector2(pos.X + (size.X - ts.X) * 0.5f, pos.Y + (size.Y - ts.Y) * 0.5f),
+            Theme.U32(Theme.Warn), "HQ");
+    }
+
+    /// <summary>Draws text, trimming with an ellipsis when it would overrun its column.</summary>
+    private static void DrawClipped(ImDrawListPtr dl, Vector2 pos, float maxWidth, string text, uint color)
+    {
+        if (maxWidth <= 8f) return;
+
+        if (ImGui.CalcTextSize(text).X <= maxWidth)
+        {
+            dl.AddText(pos, color, text);
+            return;
+        }
+
+        var ellipsisWidth = ImGui.CalcTextSize("...").X;
+        var budget = maxWidth - ellipsisWidth;
+        var length = text.Length;
+
+        while (length > 1 && ImGui.CalcTextSize(text[..length]).X > budget)
+            length--;
+
+        dl.AddText(pos, color, text[..length] + "...");
+    }
+
+    private void DrawItemContextMenu(LootItem item)
+    {
+        using var popup = ImRaii.Popup($"##ctx_{item.Id}");
+        if (!popup) return;
+
+        var config = plugin.ConfigService.Configuration;
+        var isBlacklisted = config.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
+
+        ImGui.TextColored(Theme.RarityColor(item.Rarity), ToTitleCase(item.ItemName));
+        ImGui.Separator();
+
+        if (isBlacklisted)
+        {
+            Theme.Icon(FontAwesomeIcon.EyeSlash, Theme.Good);
+            ImGui.SameLine(0, 8);
+            if (ImGui.MenuItem("Remove from blacklist"))
+            {
+                config.BlacklistedItemIds?.Remove(item.ItemId);
+                plugin.ConfigService.Save();
+            }
+        }
+        else
+        {
+            Theme.Icon(FontAwesomeIcon.Ban, Theme.Bad);
+            ImGui.SameLine(0, 8);
+            if (ImGui.MenuItem("Add to blacklist"))
+            {
+                config.BlacklistedItemIds ??= new List<uint>();
+                if (!config.BlacklistedItemIds.Contains(item.ItemId))
+                {
+                    config.BlacklistedItemIds.Add(item.ItemId);
+                    plugin.ConfigService.Save();
+                }
+            }
+        }
+
+        Theme.Icon(FontAwesomeIcon.Copy, Theme.Crystal);
+        ImGui.SameLine(0, 8);
+        if (ImGui.MenuItem("Copy item name"))
+        {
+            ImGui.SetClipboardText(ToTitleCase(item.ItemName));
+        }
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error(ex, "Failed to open {Url}", url);
+        }
+    }
+
+    private static string FormatTimeAgo(DateTime timestamp)
     {
         var elapsed = DateTime.Now - timestamp;
-        return elapsed.TotalMinutes < 1 
-            ? $"{elapsed.Seconds}s ago" 
-            : elapsed.TotalHours < 1 
+        return elapsed.TotalMinutes < 1
+            ? $"{elapsed.Seconds}s ago"
+            : elapsed.TotalHours < 1
                 ? $"{(int)elapsed.TotalMinutes}m ago"
                 : $"{(int)elapsed.TotalHours}h ago";
     }
-    
-    private Vector4 GetRarityColor(uint rarity)
-    {
-        // FFXIV rarity colors
-        return rarity switch
-        {
-            1 => new Vector4(1.0f, 1.0f, 1.0f, 1.0f),      // Common (white)
-            2 => new Vector4(0.3f, 1.0f, 0.3f, 1.0f),      // Uncommon (green)
-            3 => new Vector4(0.4f, 0.6f, 1.0f, 1.0f),      // Rare (blue)
-            4 => new Vector4(0.8f, 0.4f, 1.0f, 1.0f),      // Relic (purple)
-            7 => new Vector4(1.0f, 0.6f, 0.8f, 1.0f),      // Aetherial (pink)
-            _ => new Vector4(1.0f, 1.0f, 1.0f, 1.0f)       // Default (white)
-        };
-    }
 
-    private string ToTitleCase(string text)
+    private static string ToTitleCase(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // Use TextInfo for proper title casing
         var textInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo;
         var titleCased = textInfo.ToTitleCase(text.ToLower());
-        
+
         // Fix common words that should stay lowercase
         var wordsToLower = new[] { " Of ", " The ", " A ", " An ", " And ", " Or ", " In ", " On ", " At ", " To ", " For ", " With " };
         foreach (var word in wordsToLower)
         {
             titleCased = titleCased.Replace(word, word.ToLower());
         }
-        
+
         return titleCased;
     }
 
     // ============================================================================
     // TOOLTIP SYSTEM
     // ============================================================================
-    
+
     private void ShowItemTooltip(LootItem item)
     {
         if (!plugin.ConfigService.Configuration.ShowTooltips)
             return;
 
+        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(13, 11))
+            .Push(ImGuiStyleVar.WindowRounding, Theme.Radius);
+        using var c = ImRaii.PushColor(ImGuiCol.PopupBg, new Vector4(0.055f, 0.078f, 0.122f, 0.98f))
+            .Push(ImGuiCol.Border, Theme.Alpha(Theme.RarityColor(item.Rarity), 0.55f));
+
         ImGui.BeginTooltip();
-        
-        // Header with colored item name based on rarity
-        var rarityColor = GetRarityColor(item.Rarity);
-        ImGui.PushStyleColor(ImGuiCol.Text, rarityColor);
-        ImGui.Text(ToTitleCase(item.ItemName));
-        ImGui.PopStyleColor();
-        
+
+        var rarityColor = Theme.RarityColor(item.Rarity);
+
+        // Header: icon, name, rarity.
+        if (item.IconId > 0)
+        {
+            try
+            {
+                var tex = Plugin.TextureProvider
+                    .GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId))
+                    .GetWrapOrDefault();
+                if (tex != null)
+                {
+                    ImGui.Image(tex.Handle, new Vector2(36, 36));
+                    ImGui.SameLine(0, 10);
+                }
+            }
+            catch { /* Ignore icon loading errors */ }
+        }
+
+        ImGui.BeginGroup();
+        using (new Theme.FontScale(1.08f))
+        {
+            ImGui.TextColored(rarityColor, ToTitleCase(item.ItemName));
+        }
+
+        Theme.RarityGem(item.Rarity, 9f);
+        ImGui.SameLine(0, 5);
+        ImGui.TextColored(Theme.Alpha(rarityColor, 0.8f), Theme.RarityName(item.Rarity));
         if (item.IsHQ)
         {
-            ImGui.SameLine();
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.9f, 0.3f, 1.0f));
-            ImGui.Text("HQ");
-            ImGui.PopStyleColor();
+            ImGui.SameLine(0, 8);
+            Theme.Badge("HQ", Theme.Warn);
         }
-        
-        ImGui.Separator();
-        
-        // Item metadata
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.7f, 0.7f, 0.7f, 1.0f));
-        ImGui.Text($"Quantity: x{item.Quantity}");
-        ImGui.Text($"Item ID: {item.ItemId}");
-        ImGui.Text($"Rarity: {GetRarityName(item.Rarity)}");
-        ImGui.PopStyleColor();
-        
-        // Roll info (if applicable)
+        ImGui.EndGroup();
+
+        Theme.Rule(5f);
+
+        TooltipRow(FontAwesomeIcon.LayerGroup, "Quantity", $"x{item.Quantity}");
+        TooltipRow(FontAwesomeIcon.Hashtag, "Item ID", item.ItemId.ToString());
+        TooltipRow(FontAwesomeIcon.Bullseye, "Source", item.Source.ToString());
+
+        if (!string.IsNullOrEmpty(item.ZoneName))
+            TooltipRow(FontAwesomeIcon.MapMarkerAlt, "Zone", item.ZoneName);
+
         if (!string.IsNullOrEmpty(item.RollType))
         {
-            ImGui.Separator();
-            var rollColor = item.RollType == "Need" ? new Vector4(0.3f, 1.0f, 0.3f, 1.0f) : new Vector4(0.3f, 0.7f, 1.0f, 1.0f);
-            ImGui.PushStyleColor(ImGuiCol.Text, rollColor);
-            ImGui.Text($"🎲 {item.RollType}: {item.RollValue}");
-            ImGui.PopStyleColor();
+            var rollColor = item.RollType == "Need" ? Theme.Good : Theme.Crystal;
+            TooltipRow(FontAwesomeIcon.Dice, item.RollType, item.RollValue.ToString(), rollColor);
         }
-        
-        // Location info (only if we have zone name)
-        if (!string.IsNullOrEmpty(item.ZoneName))
-        {
-            ImGui.Separator();
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.8f, 0.9f, 1.0f, 1.0f));
-            ImGui.Text($"Zone: {item.ZoneName}");
-            ImGui.PopStyleColor();
-        }
-        
-        // Player and time info
-        ImGui.Separator();
-        var playerColor = item.IsOwnLoot ? new Vector4(0.4f, 1.0f, 0.4f, 1.0f) : new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-        ImGui.PushStyleColor(ImGuiCol.Text, playerColor);
-        ImGui.Text(item.IsOwnLoot ? "You obtained this" : $"Looted by: {item.PlayerName}");
-        ImGui.PopStyleColor();
-        
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.7f, 0.7f, 0.7f, 1.0f));
-        ImGui.Text($"{FormatTimeAgo(item.Timestamp)} ({item.Timestamp:HH:mm:ss})");
-        ImGui.PopStyleColor();
-        
+
+        Theme.Rule(5f);
+
+        var playerColor = item.IsOwnLoot ? Theme.Good : Theme.Text;
+        Theme.IconText(item.IsOwnLoot ? FontAwesomeIcon.Star : FontAwesomeIcon.User,
+            item.IsOwnLoot ? "You obtained this" : item.PlayerName, playerColor);
+
+        ImGui.TextColored(Theme.TextFaint, $"{FormatTimeAgo(item.Timestamp)}  ·  {item.Timestamp:HH:mm:ss}");
+
         ImGui.EndTooltip();
     }
-    
-    private string GetRarityName(uint rarity)
+
+    private static void TooltipRow(FontAwesomeIcon icon, string label, string value, Vector4? valueColor = null)
     {
-        return rarity switch
-        {
-            1 => "Common",
-            2 => "Uncommon",
-            3 => "Rare",
-            4 => "Relic",
-            7 => "Aetherial",
-            _ => "Unknown"
-        };
+        Theme.Icon(icon, Theme.TextFaint);
+        ImGui.SameLine(0, 8);
+        ImGui.TextColored(Theme.TextMuted, label);
+        ImGui.SameLine(115);
+        ImGui.TextColored(valueColor ?? Theme.Text, value);
     }
 
     // ============================================================================
     // PARTICLE SYSTEM
     // ============================================================================
-    
+
     private void UpdateParticles()
     {
         var now = DateTime.Now;
         var deltaTime = (float)(now - lastUpdate).TotalSeconds;
         lastUpdate = now;
-        
+
         // Update existing particles
         for (int i = particles.Count - 1; i >= 0; i--)
         {
@@ -827,23 +874,23 @@ public class LootWindow : Window
             }
         }
     }
-    
+
     private void SpawnParticlesForItem(LootItem item, Vector2 position)
     {
         // Check if we already spawned particles for this item
         if (particlesSpawned.ContainsKey(item.Id))
             return;
-            
+
         particlesSpawned[item.Id] = true;
-        
+
         var config = plugin.ConfigService.Configuration;
         if (!config.EnableParticleEffects)
             return;
-        
+
         // Get rarity-specific particle configuration
         var particleConfig = GetParticleConfigForRarity(item.Rarity);
         var particleCount = (int)(particleConfig.Count * config.ParticleIntensity);
-        
+
         for (int i = 0; i < particleCount; i++)
         {
             var angle = random.NextDouble() * Math.PI * 2;
@@ -852,7 +899,7 @@ public class LootWindow : Window
                 (float)Math.Cos(angle) * speed,
                 (float)Math.Sin(angle) * speed - particleConfig.InitialYVelocity
             );
-            
+
             var particle = new ParticleEffect
             {
                 Position = position + new Vector2((float)random.NextDouble() * 20 - 10, (float)random.NextDouble() * 20 - 10),
@@ -865,10 +912,10 @@ public class LootWindow : Window
                 Rotation = (float)(random.NextDouble() * Math.PI * 2),
                 RotationSpeed = ((float)random.NextDouble() - 0.5f) * 4f
             };
-            
+
             particles.Add(particle);
         }
-        
+
         // Add special effect rings for rare items
         if (item.Rarity >= 3)
         {
@@ -889,33 +936,33 @@ public class LootWindow : Window
             }
         }
     }
-    
+
     private void DrawParticles()
     {
         if (particles.Count == 0)
             return;
-            
+
         var drawList = ImGui.GetWindowDrawList();
-        
+
         foreach (var particle in particles)
         {
             // Particle.Position is already in screen coordinates
             var screenPos = particle.Position;
-            
+
             switch (particle.Type)
             {
                 case ParticleType.Spark:
                     // Bright small point
                     drawList.AddCircleFilled(screenPos, particle.Size, ImGui.GetColorU32(particle.Color), 8);
                     break;
-                    
+
                 case ParticleType.Glow:
                     // Soft glowing orb with gradient
                     drawList.AddCircleFilled(screenPos, particle.Size, ImGui.GetColorU32(particle.Color), 16);
                     var glowColor = new Vector4(particle.Color.X, particle.Color.Y, particle.Color.Z, particle.Color.W * 0.3f);
                     drawList.AddCircleFilled(screenPos, particle.Size * 1.5f, ImGui.GetColorU32(glowColor), 16);
                     break;
-                    
+
                 case ParticleType.Star:
                     // Star shape using lines
                     for (int i = 0; i < 4; i++)
@@ -925,19 +972,19 @@ public class LootWindow : Window
                         drawList.AddLine(screenPos - offset, screenPos + offset, ImGui.GetColorU32(particle.Color), 3f);
                     }
                     break;
-                    
+
                 case ParticleType.Ring:
                     // Expanding ring
                     var ringSize = particle.Size * (1f - particle.Life / particle.MaxLife) * 3f;
                     drawList.AddCircle(screenPos, ringSize, ImGui.GetColorU32(particle.Color), 32, 3f);
                     break;
-                    
+
                 case ParticleType.Trail:
                     // Motion trail
                     var trailEnd = screenPos - particle.Velocity * 0.1f;
                     drawList.AddLine(screenPos, trailEnd, ImGui.GetColorU32(particle.Color), particle.Size);
                     break;
-                    
+
                 case ParticleType.Shimmer:
                     // Twinkling star
                     var shimmerSize = particle.Size * (0.5f + 0.5f * (float)Math.Sin(particle.Life * 10));
@@ -946,7 +993,7 @@ public class LootWindow : Window
             }
         }
     }
-    
+
     private (int Count, float Speed, float InitialYVelocity, Vector4 Color, float Size, float Life, ParticleType Type) GetParticleConfigForRarity(uint rarity)
     {
         return rarity switch
@@ -956,56 +1003,56 @@ public class LootWindow : Window
                 Count: 15,
                 Speed: 120f,
                 InitialYVelocity: 60f,
-                Color: new Vector4(1.0f, 1.0f, 1.0f, 1.0f),
+                Color: Theme.RarityCommon,
                 Size: 3f,
                 Life: 1.2f,
                 Type: ParticleType.Spark
             ),
-            
+
             // Uncommon (Green) - Glowing orbs
             2 => (
                 Count: 20,
                 Speed: 130f,
                 InitialYVelocity: 70f,
-                Color: new Vector4(0.3f, 1.0f, 0.3f, 1.0f),
+                Color: Theme.RarityUncommon,
                 Size: 4f,
                 Life: 1.5f,
                 Type: ParticleType.Glow
             ),
-            
+
             // Rare (Blue) - Stars with shimmer
             3 => (
                 Count: 30,
                 Speed: 150f,
                 InitialYVelocity: 80f,
-                Color: new Vector4(0.4f, 0.6f, 1.0f, 1.0f),
+                Color: Theme.RarityRare,
                 Size: 6f,
                 Life: 2.0f,
                 Type: ParticleType.Star
             ),
-            
+
             // Relic (Purple) - Multiple effects
             4 => (
                 Count: 45,
                 Speed: 180f,
                 InitialYVelocity: 100f,
-                Color: new Vector4(0.8f, 0.4f, 1.0f, 1.0f),
+                Color: Theme.RarityRelic,
                 Size: 7f,
                 Life: 2.5f,
                 Type: ParticleType.Shimmer
             ),
-            
+
             // Aetherial (Pink) - Trails and sparkles
             7 => (
                 Count: 35,
                 Speed: 160f,
                 InitialYVelocity: 90f,
-                Color: new Vector4(1.0f, 0.6f, 0.8f, 1.0f),
+                Color: Theme.RarityAetherial,
                 Size: 6f,
                 Life: 2.2f,
                 Type: ParticleType.Trail
             ),
-            
+
             // Default - Basic sparks
             _ => (
                 Count: 15,
@@ -1024,7 +1071,7 @@ public class LootWindow : Window
         // Save window visibility state
         plugin.ConfigService.Configuration.IsVisible = IsOpen;
         plugin.ConfigService.Save();
-        
+
         base.Dispose();
     }
 }

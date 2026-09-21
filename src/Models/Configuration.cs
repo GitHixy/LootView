@@ -29,7 +29,6 @@ public class Configuration
     public bool LockWindowPosition { get; set; } = false;
     public bool LockWindowSize { get; set; } = false;
     public int MaxDisplayedItems { get; set; } = 50;
-    public LootWindowStyle WindowStyle { get; set; } = LootWindowStyle.Classic;
 
     // Filtering
     public uint MinimumRarity { get; set; } = 0;
@@ -60,6 +59,14 @@ public class Configuration
     public int HistoryRetentionDays { get; set; } = 90; // Keep history for 90 days by default
     public bool SaveToHistoryOnClear { get; set; } = true; // Save items to history when clearing the list
 
+    // Market prices
+    /// <summary>Look up estimated values on Universalis for the player's home world.</summary>
+    public bool EnableMarketPrices { get; set; } = true;
+
+    // Release notes
+    /// <summary>Last plugin version whose changelog the user dismissed.</summary>
+    public string LastSeenVersion { get; set; } = string.Empty;
+
     // Blacklist
     public List<uint> BlacklistedItemIds { get; set; } = new List<uint>(); // Item IDs to not display in LootWindow
 
@@ -68,19 +75,4 @@ public class Configuration
     public uint PartyLootColor { get; set; } = 0xFF0080FF; // Blue
     public uint RareLootColor { get; set; } = 0xFFFF8000; // Orange
     public uint LegendaryLootColor { get; set; } = 0xFFFF0080; // Pink
-}
-
-/// <summary>
-/// Visual style themes for the loot window
-/// </summary>
-public enum LootWindowStyle
-{
-    /// <summary>Classic table layout with icons and text</summary>
-    Classic,
-    
-    /// <summary>Compact single-line entries with minimal spacing</summary>
-    Compact,
-    
-    /// <summary>Cyberpunk/tech aesthetic with neon accents</summary>
-    Neon
 }

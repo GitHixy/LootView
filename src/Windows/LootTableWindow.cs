@@ -1,16 +1,17 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
-using Dalamud.Interface.Components;
 using LootView.Services;
+using LootView.UI;
 
 namespace LootView.Windows;
 
 /// <summary>
-/// Window for displaying zone/duty loot tables
+/// Window for displaying zone/duty loot tables.
 /// </summary>
 public class LootTableWindow : Window
 {
@@ -19,14 +20,18 @@ public class LootTableWindow : Window
     private bool isLoading;
     private Task<LootTableService.ZoneLootTable> loadingTask;
 
+    private string filter = string.Empty;
+    private int rarityFilter; // 0 = any
+
     public LootTableWindow(Plugin plugin) : base("Zone Loot Table###LootTableWindow")
     {
         this.plugin = plugin;
-        
-        SizeConstraintMin = new Vector2(700, 500);
+
+        SizeConstraintMin = new Vector2(720, 480);
         SizeConstraintMax = new Vector2(1600, 1200);
         Size = new Vector2(1000, 700);
-        
+        WindowFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+
         currentLootTable = null;
         isLoading = false;
     }
@@ -51,7 +56,8 @@ public class LootTableWindow : Window
     {
         try
         {
-            // Check if we have a loading task
+            BgAlpha = Math.Max(plugin.Configuration.BackgroundAlpha, 0.85f);
+
             if (loadingTask != null && loadingTask.IsCompleted)
             {
                 currentLootTable = loadingTask.Result;
@@ -59,17 +65,8 @@ public class LootTableWindow : Window
                 isLoading = false;
             }
 
-            // Header with zone name and refresh button
             DrawHeader();
 
-            ImGui.Separator();
-            ImGui.Spacing();
-
-            // Disclaimer
-            DrawDisclaimer();
-            ImGui.Spacing();
-
-            // Content
             if (isLoading)
             {
                 DrawLoadingState();
@@ -90,92 +87,53 @@ public class LootTableWindow : Window
         catch (Exception ex)
         {
             Plugin.Log.Error(ex, "Error drawing loot table window");
-            ImGui.TextColored(new Vector4(1, 0, 0, 1), "Error displaying loot table");
-            ImGui.Text(ex.Message);
+            ImGui.TextColored(Theme.Bad, "Error displaying loot table");
+            ImGui.TextColored(Theme.TextMuted, ex.Message);
         }
     }
 
     private void DrawHeader()
     {
-        var zoneName = currentLootTable?.ZoneName ?? "No Zone Selected";
-        
-        using (ImRaii.PushFont(UiBuilder.IconFont))
-        {
-            ImGui.Text(FontAwesomeIcon.Table.ToIconString());
-        }
-        
-        ImGui.SameLine();
-        ImGui.TextColored(new Vector4(0.6f, 0.8f, 1.0f, 1), zoneName);
-        
-        ImGui.SameLine();
-        var refreshButtonPos = ImGui.GetContentRegionAvail().X - 100;
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + refreshButtonPos);
-        
-        if (ImGuiComponents.IconButton("RefreshLootTable", FontAwesomeIcon.Sync))
-        {
-            LoadCurrentZone();
-        }
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip("Refresh loot table for current zone");
-        }
-    }
+        var zoneName = currentLootTable?.ZoneName ?? "No zone selected";
+        var subtitle = currentLootTable is null
+            ? "Enter a duty and refresh to load its drops"
+            : $"Content Finder {currentLootTable.ContentFinderConditionId}  ·  Territory {currentLootTable.TerritoryId}";
 
-    private void DrawDisclaimer()
-    {
-        // Warning icon and disclaimer text
-        using (ImRaii.PushFont(UiBuilder.IconFont))
+        Theme.WindowHeader(FontAwesomeIcon.Table, zoneName, subtitle, () =>
         {
-            ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.2f, 1.0f), FontAwesomeIcon.ExclamationTriangle.ToIconString());
-        }
-        
-        ImGui.SameLine();
-        ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.2f, 1.0f), "Work in Progress:");
-        
-        ImGui.SameLine();
-        ImGui.PushTextWrapPos(ImGui.GetContentRegionAvail().X);
-        ImGui.TextWrapped("I'm actively working to fix issues and improve the loot table data. Updates and fixes are added regularly, but some data may still be incomplete or inaccurate.");
-        ImGui.PopTextWrapPos();
+            var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
+            ImGui.SetCursorPosX(right - 30f);
+            if (Theme.IconButton("##RefreshLootTable", FontAwesomeIcon.Sync, "Reload the table for the zone you're in", Theme.Crystal))
+            {
+                LoadCurrentZone();
+            }
+        });
     }
 
     private void DrawLoadingState()
     {
-        var windowSize = ImGui.GetWindowSize();
-        var textSize = ImGui.CalcTextSize("Loading loot table...");
-        
-        ImGui.SetCursorPos(new Vector2(
-            (windowSize.X - textSize.X) / 2,
-            (windowSize.Y - textSize.Y) / 2
-        ));
-        
-        ImGui.TextColored(new Vector4(0.6f, 0.8f, 1.0f, 1), "Loading loot table...");
-        
-        // Spinning icon
-        ImGui.SetCursorPos(new Vector2(
-            (windowSize.X - 20) / 2,
-            (windowSize.Y) / 2 + 30
-        ));
-        
-        using (ImRaii.PushFont(UiBuilder.IconFont))
-        {
-            ImGui.Text(FontAwesomeIcon.Spinner.ToIconString());
-        }
+        var avail = ImGui.GetContentRegionAvail();
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - 80f) * 0.4f, 10f));
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - 26f) * 0.5f, 0));
+
+        Theme.Spinner();
+
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.CenteredText("Reading the loot table...", Theme.Text);
+        Theme.CenteredText("Fetching drop data for this instance", Theme.TextFaint);
     }
 
     private void DrawEmptyState()
     {
-        var windowSize = ImGui.GetWindowSize();
-        
-        ImGui.SetCursorPos(new Vector2(20, (windowSize.Y - 100) / 2));
-        
-        ImGui.PushTextWrapPos(windowSize.X - 40);
-        ImGui.TextWrapped("No loot table loaded. Enter a duty or instance and click the refresh button to load the loot table for that zone.");
-        ImGui.PopTextWrapPos();
-        
-        ImGui.Spacing();
-        ImGui.Spacing();
-        
-        if (ImGui.Button("Load Current Zone", new Vector2(200, 30)))
+        Theme.EmptyState(
+            FontAwesomeIcon.MapSigns,
+            "No loot table loaded",
+            "Enter a dungeon, trial or raid, then load the current zone.");
+
+        ImGui.Dummy(new Vector2(0, 14));
+        var w = ImGui.GetContentRegionAvail().X;
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((w - 200f) * 0.5f, 0));
+        if (Theme.PrimaryButton("Load current zone", new Vector2(200, 34)))
         {
             LoadCurrentZone();
         }
@@ -183,13 +141,12 @@ public class LootTableWindow : Window
 
     private void DrawErrorState()
     {
-        ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "Failed to load loot table");
-        ImGui.Spacing();
-        ImGui.TextWrapped(currentLootTable.ErrorMessage);
-        ImGui.Spacing();
-        ImGui.Spacing();
-        
-        if (ImGui.Button("Try Again"))
+        ImGui.Dummy(new Vector2(0, 10));
+        Theme.Callout(FontAwesomeIcon.ExclamationTriangle, "Couldn't load this loot table",
+            currentLootTable.ErrorMessage, Theme.Bad);
+
+        ImGui.Dummy(new Vector2(0, 12));
+        if (Theme.GhostButton("Try again", new Vector2(140, 32)))
         {
             LoadCurrentZone();
         }
@@ -199,131 +156,145 @@ public class LootTableWindow : Window
     {
         if (currentLootTable.Items.Count == 0)
         {
-            ImGui.TextColored(new Vector4(1, 1, 0, 1), "No loot data available for this zone");
+            Theme.EmptyState(FontAwesomeIcon.BoxOpen, "No loot data for this zone",
+                "This instance has no drop table on record yet.");
             return;
         }
 
-        // Info header with stats
-        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.8f, 0.9f, 1.0f, 1.0f));
-        ImGui.Text($"📦 {currentLootTable.Items.Count} items");
-        ImGui.SameLine();
-        ImGui.Text($" | ");
-        ImGui.SameLine();
-        ImGui.Text($"🎯 Content Finder: {currentLootTable.ContentFinderConditionId}");
-        ImGui.SameLine();
-        ImGui.Text($" | ");
-        ImGui.SameLine();
-        ImGui.Text($"🗺️ Territory: {currentLootTable.TerritoryId}");
-        ImGui.PopStyleColor();
-        
-        ImGui.Spacing();
-        ImGui.Separator();
-        ImGui.Spacing();
+        DrawFilterBar();
 
-        // Calculate available height for table (leave space for header and padding)
-        var availableHeight = ImGui.GetContentRegionAvail().Y - 10;
+        var items = currentLootTable.Items.AsEnumerable();
 
-        // Create scrollable table with proper column sizing
-        if (ImGui.BeginTable("LootTableTable", 6, 
-            ImGuiTableFlags.Borders | 
-            ImGuiTableFlags.RowBg | 
-            ImGuiTableFlags.ScrollY | 
+        if (!string.IsNullOrWhiteSpace(filter))
+            items = items.Where(i => i.ItemName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                     || i.Source.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                     || i.Category.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        if (rarityFilter > 0)
+            items = items.Where(i => i.Rarity == rarityFilter);
+
+        var visible = items.ToList();
+
+        ImGui.Dummy(new Vector2(0, 4));
+
+        if (visible.Count == 0)
+        {
+            Theme.EmptyState(FontAwesomeIcon.Search, "Nothing matches your filter",
+                "Try a different name, or reset the rarity filter.");
+            return;
+        }
+
+        var availableHeight = ImGui.GetContentRegionAvail().Y - 4;
+
+        using var table = ImRaii.Table("LootTableTable", 6,
+            ImGuiTableFlags.RowBg |
+            ImGuiTableFlags.ScrollY |
             ImGuiTableFlags.Sortable |
             ImGuiTableFlags.Resizable |
+            ImGuiTableFlags.BordersInnerV |
             ImGuiTableFlags.SizingFixedFit,
-            new Vector2(0, availableHeight)))
+            new Vector2(0, availableHeight));
+
+        if (!table) return;
+
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort | ImGuiTableColumnFlags.NoResize, 36);
+        ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, 44);
+        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 130);
+        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 190);
+        ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 90);
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableHeadersRow();
+
+        foreach (var item in visible)
         {
-            // Setup columns - icon and ilvl are small and fixed, rest stretch proportionally
-            ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort | ImGuiTableColumnFlags.NoResize, 36);
-            ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, 40);
-            ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 120);
-            ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 180);
-            ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 75);
-            ImGui.TableSetupScrollFreeze(0, 1);
-            ImGui.TableHeadersRow();
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, 34f);
 
-            // Draw items
-            foreach (var item in currentLootTable.Items)
+            var itemColor = Theme.RarityColor(item.Rarity);
+
+            // Icon column
+            ImGui.TableSetColumnIndex(0);
+            if (item.ItemId > 0 && item.IconId > 0)
             {
-                ImGui.TableNextRow();
-
-                var itemColor = GetRarityColor(item.Rarity);
-
-                // Icon column
-                ImGui.TableSetColumnIndex(0);
-                if (item.ItemId > 0 && item.IconId > 0)
+                try
                 {
-                    try
+                    var iconTexture = Plugin.TextureProvider
+                        .GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId))
+                        .GetWrapOrDefault();
+                    if (iconTexture != null)
                     {
-                        var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId)).GetWrapOrDefault();
-                        if (iconTexture != null)
+                        ImGui.Image(iconTexture.Handle, new Vector2(28, 28));
+                        if (ImGui.IsItemHovered())
                         {
-                            ImGui.Image(iconTexture.Handle, new Vector2(32, 32));
-                            if (ImGui.IsItemHovered())
-                            {
-                                ImGui.SetTooltip($"{item.ItemName}\nItem Level: {item.ItemLevel}\n{item.Category}\nSource: {item.Source}");
-                            }
+                            Theme.Tooltip($"{item.ItemName}\nItem Level {item.ItemLevel}\n{item.Category}\nSource: {item.Source}");
                         }
                     }
-                    catch { /* Ignore icon loading errors */ }
                 }
-
-                // Item name column
-                ImGui.TableSetColumnIndex(1);
-                ImGui.TextColored(itemColor, item.ItemName);
-
-                // Item Level column
-                ImGui.TableSetColumnIndex(2);
-                if (item.ItemLevel > 0)
-                {
-                    ImGui.Text(item.ItemLevel.ToString());
-                }
-
-                // Category column
-                ImGui.TableSetColumnIndex(3);
-                ImGui.TextColored(new Vector4(0.85f, 0.85f, 0.85f, 1), item.Category);
-
-                // Source column
-                ImGui.TableSetColumnIndex(4);
-                ImGui.TextColored(new Vector4(0.7f, 0.9f, 0.7f, 1), item.Source);
-
-                // Rarity column
-                ImGui.TableSetColumnIndex(5);
-                if (item.ItemId > 0)
-                {
-                    ImGui.TextColored(itemColor, GetRarityText(item.Rarity));
-                }
+                catch { /* Ignore icon loading errors */ }
             }
 
-            ImGui.EndTable();
+            // Item name column
+            ImGui.TableSetColumnIndex(1);
+            ImGui.AlignTextToFramePadding();
+            Theme.RarityGem(item.Rarity, 9f);
+            ImGui.SameLine(0, 7);
+            ImGui.TextColored(itemColor, item.ItemName);
+
+            // Item Level column
+            ImGui.TableSetColumnIndex(2);
+            ImGui.AlignTextToFramePadding();
+            if (item.ItemLevel > 0)
+            {
+                ImGui.TextColored(Theme.Gold, item.ItemLevel.ToString());
+            }
+            else
+            {
+                ImGui.TextColored(Theme.TextFaint, "-");
+            }
+
+            // Category column
+            ImGui.TableSetColumnIndex(3);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, item.Category);
+
+            // Source column
+            ImGui.TableSetColumnIndex(4);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Alpha(Theme.Crystal, 0.9f), item.Source);
+
+            // Rarity column
+            ImGui.TableSetColumnIndex(5);
+            ImGui.AlignTextToFramePadding();
+            if (item.ItemId > 0)
+            {
+                Theme.Badge(Theme.RarityName((uint)Math.Max(item.Rarity, 0)), itemColor);
+            }
         }
     }
 
-    private Vector4 GetRarityColor(int rarity)
+    private void DrawFilterBar()
     {
-        return rarity switch
-        {
-            1 => new Vector4(1.0f, 1.0f, 1.0f, 1.0f),     // Common (white)
-            2 => new Vector4(0.2f, 1.0f, 0.2f, 1.0f),     // Uncommon (green)
-            3 => new Vector4(0.2f, 0.5f, 1.0f, 1.0f),     // Rare (blue)
-            4 => new Vector4(0.64f, 0.21f, 0.93f, 1.0f),  // Relic (purple)
-            7 => new Vector4(0.95f, 0.68f, 0.95f, 1.0f),  // Aetherial (pink)
-            _ => new Vector4(0.8f, 0.8f, 0.8f, 1.0f)      // Default (gray)
-        };
-    }
+        ImGui.AlignTextToFramePadding();
+        Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
+        ImGui.SameLine(0, 8);
+        ImGui.SetNextItemWidth(240);
+        ImGui.InputTextWithHint("##LootTableFilter", "Filter by name, source or category", ref filter, 120);
 
-    private string GetRarityText(int rarity)
-    {
-        return rarity switch
-        {
-            1 => "Common",
-            2 => "Uncommon",
-            3 => "Rare",
-            4 => "Relic",
-            7 => "Aetherial",
-            _ => ""
-        };
+        ImGui.SameLine(0, 12);
+        Theme.SegmentedControl("##RarityFilter", ref rarityFilter, "All", "Common", "Uncommon", "Rare", "Relic");
+
+        ImGui.SameLine();
+        var count = currentLootTable.Items.Count;
+        var badge = $"{count} items";
+        var bw = ImGui.CalcTextSize(badge).X + 18;
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - bw, 0));
+        ImGui.AlignTextToFramePadding();
+        Theme.Badge(badge, Theme.Gold);
+
+        ImGui.Dummy(new Vector2(0, 2));
+        Theme.Callout(FontAwesomeIcon.ExclamationTriangle, "Work in progress",
+            "Loot table data is still being corrected and expanded. Some entries may be incomplete or inaccurate.",
+            Theme.Warn);
     }
 
     public override void Dispose()

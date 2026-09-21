@@ -43,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
     public ConfigurationService ConfigService { get; private set; }
     public HistoryService HistoryService { get; private set; }
     public LootTableService LootTableService { get; private set; }
+    public MarketPriceService MarketPriceService { get; private set; }
     
     // DTR Bar Entry
     private IDtrBarEntry? dtrEntry;
@@ -53,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
     public StatisticsWindow StatisticsWindow { get; private set; }
     public LootTableWindow LootTableWindow { get; private set; }
     public RollWindow RollWindow { get; private set; }
+    public ChangelogWindow ChangelogWindow { get; private set; }
     
     // Configuration accessor for services
     public Configuration Configuration => ConfigService.Configuration;
@@ -76,6 +78,9 @@ public sealed class Plugin : IDalamudPlugin
             // Initialize loot table service
             LootTableService = new LootTableService();
 
+            // Initialize market price service
+            MarketPriceService = new MarketPriceService(ConfigService);
+
             // Initialize loot tracking service
             LootTracker = new LootTrackingService(ConfigService);
             LootTracker.SetHistoryService(HistoryService);
@@ -87,6 +92,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow = new StatisticsWindow(this);
             LootTableWindow = new LootTableWindow(this);
             RollWindow = new RollWindow(this);
+            ChangelogWindow = new ChangelogWindow(this);
 
             // Register commands
             CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand)
@@ -114,6 +120,12 @@ public sealed class Plugin : IDalamudPlugin
             // Initialize services
             LootTracker.Initialize();
 
+            // Reloading the plugin while already logged in never raises Login, so catch up here.
+            if (ClientState.IsLoggedIn)
+            {
+                OnCharacterReady();
+            }
+
             Log.Info("LootView plugin initialized successfully!");
         }
         catch (Exception ex)
@@ -136,6 +148,7 @@ public sealed class Plugin : IDalamudPlugin
             }
 
             // Dispose services in reverse order
+            MarketPriceService?.Dispose();
             LootTableService?.Dispose();
             LootTracker?.Dispose();
             HistoryService?.Dispose();
@@ -158,6 +171,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow?.Dispose();
             LootTableWindow?.Dispose();
             RollWindow?.Dispose();
+            ChangelogWindow?.Dispose();
 
             // Remove commands
             CommandManager.RemoveHandler(CommandAlt);
@@ -201,6 +215,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow?.Draw();
             LootTableWindow?.Draw();
             RollWindow?.Draw();
+            ChangelogWindow?.Draw();
         }
         catch (Exception ex)
         {
@@ -225,7 +240,13 @@ public sealed class Plugin : IDalamudPlugin
         ConfigService.Save();
     }
 
-    private void OnLogin()
+    private void OnLogin() => OnCharacterReady();
+
+    /// <summary>
+    /// Runs once the character is actually in the world - on login, or straight away when
+    /// the plugin is loaded into a session that is already running.
+    /// </summary>
+    private void OnCharacterReady()
     {
         try
         {
@@ -234,11 +255,40 @@ public sealed class Plugin : IDalamudPlugin
                 LootWindow.IsOpen = true;
                 Log.Info("LootView window opened automatically on login");
             }
+
+            ShowReleaseNotesIfNeeded();
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error in OnLogin");
+            Log.Error(ex, "Error preparing LootView for the current character");
         }
+    }
+
+    /// <summary>
+    /// Surfaces the changelog the first time a character logs in after an update.
+    /// A brand-new install is marked as read instead, so first-time users aren't greeted
+    /// with notes about changes they never saw.
+    /// </summary>
+    private void ShowReleaseNotesIfNeeded()
+    {
+        var config = ConfigService.Configuration;
+        var current = UI.Changelog.CurrentVersion;
+
+        if (ConfigService.IsNewConfiguration)
+        {
+            if (config.LastSeenVersion != current)
+            {
+                config.LastSeenVersion = current;
+                ConfigService.Save();
+            }
+            return;
+        }
+
+        if (!UI.Changelog.HasUnseenNotes(config.LastSeenVersion))
+            return;
+
+        Log.Info($"Showing release notes for {current} (last seen: '{config.LastSeenVersion}')");
+        ChangelogWindow.ShowSince(config.LastSeenVersion);
     }
 
     private void OnDutyPop(Lumina.Excel.Sheets.ContentFinderCondition duty)
