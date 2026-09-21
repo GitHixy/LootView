@@ -34,6 +34,18 @@ public class LootWindow : Window
     private DateTime lastUpdate = DateTime.Now;
     private readonly Dictionary<Guid, bool> particlesSpawned = new(); // Track which items have spawned particles
 
+    /// <summary>
+    /// Everything looted since the counter was last reset, as quantity per
+    /// (item, quality, owner). The displayed list is capped by MaxDisplayedItems and the
+    /// tracker only keeps twice that in memory, so totalling the visible rows made the
+    /// earned figure fall as older drops aged out. This accumulates independently.
+    ///
+    /// Only the identity and quantity are kept, not whole items, so a long session costs
+    /// one entry per distinct item rather than one per drop. Both this and the draw loop
+    /// run on the framework thread, so no locking is needed.
+    /// </summary>
+    private readonly Dictionary<(uint ItemId, bool IsHq, bool IsOwn), long> earned = new();
+
     public LootWindow(Plugin plugin) : base("LootView###LootViewMain")
     {
         this.plugin = plugin;
@@ -48,6 +60,17 @@ public class LootWindow : Window
 
         // Set initial window flags based on lock state
         UpdateWindowFlags();
+
+        plugin.LootTracker.LootObtained += OnLootObtained;
+    }
+
+    private void OnLootObtained(LootItem item)
+    {
+        if (item.ItemId == 0) return;
+
+        var key = (item.ItemId, item.IsHQ, item.IsOwnLoot);
+        earned.TryGetValue(key, out var quantity);
+        earned[key] = quantity + item.Quantity;
     }
 
     /// <summary>
@@ -112,7 +135,7 @@ public class LootWindow : Window
             var lootItems = plugin.LootTracker.GetFilteredLoot().ToList();
 
             DrawToolbar(config);
-            DrawValueStrip(config, lootItems);
+            DrawValueStrip(config);
 
             if (lootItems.Count == 0)
             {
@@ -274,42 +297,51 @@ public class LootWindow : Window
     /// Both figures are shown because they answer different questions: the average is what
     /// items have been selling for, the minimum is what you would have to list at today.
     /// </summary>
-    private void DrawValueStrip(Configuration config, List<LootItem> lootItems)
+    private void DrawValueStrip(Configuration config)
     {
-        if (!config.EnableMarketPrices || lootItems.Count == 0) return;
+        if (!config.EnableMarketPrices) return;
 
         var market = plugin.MarketPriceService;
 
-        // Only sellable items are ever requested, so junk never costs a call.
-        var marketable = lootItems.Where(i => market.IsMarketable(i.ItemId)).ToList();
-        if (marketable.Count == 0) return;
+        // Respect the same toggles the list does, so the total always matches what the
+        // window claims to be showing. Blacklisted items were never meant to be tracked.
+        var counted = earned
+            .Where(e => !config.ShowOnlyOwnLoot || e.Key.IsOwn)
+            .Where(e => !(config.BlacklistedItemIds?.Contains(e.Key.ItemId) ?? false))
+            .Where(e => market.IsMarketable(e.Key.ItemId))
+            .ToList();
 
-        market.RequestPrices(marketable.Select(i => i.ItemId).Distinct());
+        if (counted.Count == 0) return;
+
+        market.RequestPrices(counted.Select(e => e.Key.ItemId).Distinct());
 
         double averageTotal = 0, minimumTotal = 0;
+        long totalUnits = 0;
         var priced = 0;    // has sale history, counts toward Avg
         var listed = 0;    // has a live listing, counts toward Now
         var unpriced = 0;  // Universalis knows nothing about it
 
-        foreach (var item in marketable)
+        foreach (var (key, quantity) in counted)
         {
-            if (market.TryGetPrice(item.ItemId, out var price) && price.HasData)
+            totalUnits += quantity;
+
+            if (market.TryGetPrice(key.ItemId, out var price) && price.HasData)
             {
-                var avg = price.Average(item.IsHQ);
-                var min = price.Minimum(item.IsHQ);
+                var avg = price.Average(key.IsHq);
+                var min = price.Minimum(key.IsHq);
 
                 // An item can have sale history but nothing listed right now. Counting
                 // that as zero would quietly understate the second figure, so each total
                 // only sums the items it actually has a price for.
                 if (avg > 0)
                 {
-                    averageTotal += avg * item.Quantity;
+                    averageTotal += avg * quantity;
                     priced++;
                 }
 
                 if (min > 0)
                 {
-                    minimumTotal += min * item.Quantity;
+                    minimumTotal += min * quantity;
                     listed++;
                 }
 
@@ -397,27 +429,46 @@ public class LootWindow : Window
         if (unpriced > 0) notes.Add($"{unpriced} unpriced");
         if (!string.IsNullOrEmpty(market.WorldName)) notes.Add(market.WorldName);
 
+        const float resetSize = 20f;
+        var resetMin = new Vector2(max.X - 13f - resetSize, origin.Y + (h - resetSize) * 0.5f);
+        var overReset = ImGui.IsMouseHoveringRect(resetMin, resetMin + new Vector2(resetSize, resetSize));
+        var notesRight = resetMin.X - 8f;
+
         if (notes.Count > 0)
         {
             var note = string.Join("  -  ", notes);
             var nw = ImGui.CalcTextSize(note).X;
-            dl.AddText(new Vector2(max.X - nw - 13f, textY), Theme.U32(Theme.TextFaint), note);
+            dl.AddText(new Vector2(notesRight - nw, textY), Theme.U32(Theme.TextFaint), note);
+        }
+
+        // Hover target for the whole strip, submitted before the button so the button wins
+        // the click.
+        ImGui.SetCursorScreenPos(origin);
+        ImGui.Dummy(new Vector2(width, h));
+
+        if (ImGui.IsItemHovered() && !overReset)
+        {
+            Theme.Tooltip(
+                $"Everything looted since the counter was last reset, valued on " +
+                $"{market.WorldName ?? "your home world"} via Universalis.\n\n" +
+                $"Avg - what these items have been selling for recently.\n" +
+                $"Now - the cheapest listings currently up.\n\n" +
+                $"{totalUnits:N0} units across {counted.Count} sellable items. " +
+                $"{priced} have sale history, {listed} have something listed right now.\n" +
+                "This total is independent of the list, which only keeps the most recent " +
+                "items. Prices are crowd-sourced and exclude the 5% market board tax.");
+        }
+
+        // Resets only the earned total - clearing the list leaves it alone, and vice versa.
+        ImGui.SetCursorScreenPos(resetMin);
+        if (Theme.IconButton("##ResetEarned", FontAwesomeIcon.Undo,
+                "Reset the earned total\nThe loot list is left untouched", Theme.Gold, false, resetSize))
+        {
+            earned.Clear();
         }
 
         ImGui.SetCursorScreenPos(origin);
         ImGui.Dummy(new Vector2(width, h));
-
-        if (ImGui.IsItemHovered())
-        {
-            Theme.Tooltip(
-                $"Estimated market value on {market.WorldName ?? "your home world"}, via Universalis.\n\n" +
-                $"Avg - what these items have been selling for recently.\n" +
-                $"Now - the cheapest listings currently up.\n\n" +
-                $"{priced} of {marketable.Count} sellable items have sale history; " +
-                $"{listed} have something listed right now.\n" +
-                "Prices are crowd-sourced and exclude the 5% market board tax.");
-        }
-
         ImGui.Dummy(new Vector2(0, 4));
     }
 
@@ -1068,6 +1119,8 @@ public class LootWindow : Window
 
     public override void Dispose()
     {
+        plugin.LootTracker.LootObtained -= OnLootObtained;
+
         // Save window visibility state
         plugin.ConfigService.Configuration.IsVisible = IsOpen;
         plugin.ConfigService.Save();

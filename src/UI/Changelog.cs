@@ -36,7 +36,9 @@ public static class Changelog
             new(NoteKind.Improved, "Statistics charts are now properly drawn, with hover tooltips, in place of the old text bars."),
             new(NoteKind.Improved, "The loot list highlights new drops with a brass sweep, marks rarity on every row and sizes its columns to the content."),
             new(NoteKind.Changed, "The roll window is now a set of rarity-tinted cards with a countdown ring and a crown on the winner."),
-            new(NoteKind.Added, "Estimated market value of your loot, priced for your home world through Universalis."),
+            new(NoteKind.Added, "Estimated market value of everything you loot, priced for your home world "
+                                + "through Universalis. The running total is independent of how many items the list "
+                                + "keeps, and has its own reset button."),
             new(NoteKind.Added, "Release notes - this window - appear once after each update."),
             new(NoteKind.Changed, "The overlay now waits until your character has finished logging in before it appears."),
             new(NoteKind.Fixed, "A drawing error inside a window could leave ImGui's window stack unbalanced."),
