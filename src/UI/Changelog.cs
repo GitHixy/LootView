@@ -28,6 +28,27 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.5.0", "Roll timers, passes and feedback",
+        [
+            new(NoteKind.Added, "Every item in the roll window shows how long is left to roll on it, with a bar that "
+                                + "turns amber and then red as time runs out."),
+            new(NoteKind.Added, "Passes now appear in the results, along with items you aren't allowed to roll on and "
+                                + "party members who never chose."),
+            new(NoteKind.Added, "While an item is open, the roll window lists who in your party still has to decide."),
+            new(NoteKind.Improved, "Every loot session now reaches an end: items everyone passed on, items that timed out "
+                                   + "and rolls you left the duty on all close properly."),
+            new(NoteKind.Added, "When an item is awarded, its card lights up: a sweep of light, sparks from the "
+                                + "winner's crown and rings from the item. Follows your particle effect settings."),
+            new(NoteKind.Changed, "Each resolved item now leaves the roll window on its own after 20 seconds, with a "
+                                  + "countdown on the card. Change how long in Settings → Tracking."),
+            new(NoteKind.Added, "A Diagnostics page in Settings with LootView's live log, filterable by level and text, "
+                                + "including the debug lines Dalamud normally hides."),
+            new(NoteKind.Added, "Copy report puts your version, a few settings and the recent log (or just the lines you "
+                                + "select) on the clipboard, ready to paste into a GitHub issue."),
+            new(NoteKind.Added, "Report a bug and Suggest a feature buttons open a pre-filled GitHub issue. "
+                                + "Feature ideas are very welcome there too."),
+        ]),
+
         new("1.4.0", "A complete visual overhaul",
         [
             new(NoteKind.Changed, "Every window has been redesigned around a single Eorzean theme: dark glass panels, brass rules and crystal-blue highlights."),

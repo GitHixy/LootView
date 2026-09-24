@@ -13,7 +13,7 @@ namespace LootView.Services;
 /// Simplified service for tracking loot obtained by players
 /// This version focuses on functionality over complex hooks
 /// </summary>
-public class LootTrackingService : IDisposable
+public partial class LootTrackingService : IDisposable
 {
     private readonly ConfigurationService configService;
     private readonly List<LootItem> lootHistory = new();
@@ -148,16 +148,19 @@ public class LootTrackingService : IDisposable
     public event Action RollsUpdated;
 
     /// <summary>
-    /// Clear all completed roll sessions (ones with winners)
+    /// Drops resolved roll sessions once they have been on screen for the configured time.
     /// </summary>
-    public void ClearCompletedRolls()
+    public void RemoveExpiredRolls()
     {
+        var keep = TimeSpan.FromSeconds(configService.Configuration.RollResultSeconds);
+        var now = DateTime.Now;
+
         lock (rollLock)
         {
-            var completedCount = activeRolls.RemoveAll(r => !string.IsNullOrEmpty(r.WinnerName));
-            if (completedCount > 0)
+            var expired = activeRolls.RemoveAll(r => r.FinishedAt is { } at && now - at >= keep);
+            if (expired > 0)
             {
-                Plugin.Log.Info($"Cleared {completedCount} completed roll session(s)");
+                Plugin.Log.Info($"Removed {expired} resolved roll session(s) after {keep.TotalSeconds:F0}s");
                 RollsUpdated?.Invoke();
             }
         }
@@ -198,6 +201,7 @@ public class LootTrackingService : IDisposable
             
             // Subscribe to chat messages for loot detection
             Plugin.ChatGui.ChatMessage += OnChatMessage;
+            Plugin.Framework.Update += OnFrameworkUpdate;
             
             Plugin.Log.Info("Loot tracking service initialized successfully");
         }
@@ -242,6 +246,12 @@ public class LootTrackingService : IDisposable
             if (configService.Configuration.EnableRollTracking && messageText.Contains("has been added to the loot list"))
             {
                 ProcessLootListAddedMessage(messageText, message);
+            }
+            else if (configService.Configuration.EnableRollTracking && messageText.Contains(" lot for ") &&
+                     (messageText.StartsWith("You cast your lot", StringComparison.Ordinal) ||
+                      messageText.Contains(" casts his lot ") || messageText.Contains(" casts her lot ")))
+            {
+                ProcessCastLotMessage(messageText, message);
             }
             else if (configService.Configuration.EnableRollTracking &&
                 (messageText.Contains(" roll") || messageText.Contains(" rolls ")) &&
@@ -531,46 +541,30 @@ public class LootTrackingService : IDisposable
             lock (rollLock)
             {
                 var itemId = itemData?.ItemId ?? 0;
-                // Find the first roll for this item that doesn't have a winner yet
-                var rollInfo = itemId > 0 ? activeRolls.FirstOrDefault(r => r.ItemId == itemId && string.IsNullOrEmpty(r.WinnerName)) : null;
+                // Prefer the session this player actually rolled on; passes never win.
+                var candidates = itemId > 0
+                    ? activeRolls.Where(r => r.ItemId == itemId && string.IsNullOrEmpty(r.WinnerName)).ToList()
+                    : new List<RollInfo>();
+                var rollInfo = candidates.FirstOrDefault(r => FindRollerKey(r, playerName) != null)
+                               ?? candidates.FirstOrDefault();
                 
                 if (rollInfo != null)
                 {
-                    string winnerRollName = string.Empty;
-                    
-                    // Try exact match first
-                    if (rollInfo.PlayerRolls.TryGetValue(playerName, out var roll))
+                    string winnerRollName = FindRollerKey(rollInfo, playerName) ?? string.Empty;
+
+                    if (winnerRollName.Length > 0)
                     {
+                        var roll = rollInfo.PlayerRolls[winnerRollName];
                         lootItem.RollType = roll.RollType;
                         lootItem.RollValue = roll.RollValue;
-                        winnerRollName = playerName;
-                        Plugin.Log.Info($"Adding roll info to loot (exact match): {roll.RollType} {roll.RollValue}");
-                    }
-                    else
-                    {
-                        // Try partial match (for truncated names like "Kaia  Tanne" vs "Kaia TanneSagittarius")
-                        // Clean up the player name by removing extra spaces
-                        var cleanedPlayerName = playerName.Replace("  ", " ").Trim();
-                        
-                        foreach (var kvp in rollInfo.PlayerRolls)
-                        {
-                            var rollPlayerName = kvp.Key;
-                            // Check if roll player name starts with the truncated obtained player name
-                            if (rollPlayerName.StartsWith(cleanedPlayerName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                lootItem.RollType = kvp.Value.RollType;
-                                lootItem.RollValue = kvp.Value.RollValue;
-                                winnerRollName = rollPlayerName;
-                                Plugin.Log.Info($"Adding roll info to loot (partial match '{cleanedPlayerName}' -> '{rollPlayerName}'): {kvp.Value.RollType} {kvp.Value.RollValue}");
-                                break;
-                            }
-                        }
+                        Plugin.Log.Info($"Adding roll info to loot ('{playerName}' -> '{winnerRollName}'): {roll.RollType} {roll.RollValue}");
                     }
                     
                     // Mark the winner in the roll info
                     if (!string.IsNullOrEmpty(winnerRollName))
                     {
                         rollInfo.WinnerName = winnerRollName;
+                        rollInfo.FinishedAt ??= DateTime.Now;
                         Plugin.Log.Info($"Winner marked: {winnerRollName} won {itemName}");
                         
                         // Notify that rolls have been updated (winner marked)
@@ -2092,7 +2086,7 @@ public class LootTrackingService : IDisposable
                     return;
                 }
                 
-                playerName = messageText.Substring(0, rollsIndex).Trim();
+                playerName = ActorName(message, messageText.Substring(0, rollsIndex));
                 Plugin.Log.Debug($"Extracted player name: {playerName}");
                 
                 if (messageText.Contains("rolls Need on "))
@@ -2169,13 +2163,15 @@ public class LootTrackingService : IDisposable
             }
 
             var itemId = itemData.Value.ItemId;
-            var cleanedPlayerName = CleanPlayerName(playerName);
+            var cleanedPlayerName = playerName;
 
             // Track the roll - find an active roll for this item that doesn't have this player's roll yet
             lock (rollLock)
             {
-                // Find the first roll session for this item that doesn't have this player's roll
-                var rollInfo = activeRolls.FirstOrDefault(r => r.ItemId == itemId && !r.PlayerRolls.ContainsKey(cleanedPlayerName));
+                // Find the first roll session for this item that doesn't have this player's roll yet.
+                // A pass or "can't roll" placeholder from the same player is replaced by the real roll.
+                var rollInfo = activeRolls.FirstOrDefault(r => r.ItemId == itemId && !r.IsFinished && FindRollerKey(r, cleanedPlayerName) == null)
+                               ?? activeRolls.FirstOrDefault(r => r.ItemId == itemId && FindRollerKey(r, cleanedPlayerName) == null);
                 
                 if (rollInfo == null)
                 {
@@ -2190,6 +2186,10 @@ public class LootTrackingService : IDisposable
                     activeRolls.Add(rollInfo);
                     Plugin.Log.Warning($"Creating new roll session for {itemData.Value.Name} (loot list message may have been missed)");
                 }
+
+                var placeholder = FindPlayerKey(rollInfo, cleanedPlayerName);
+                if (placeholder != null)
+                    rollInfo.PlayerRolls.Remove(placeholder);
 
                 rollInfo.PlayerRolls[cleanedPlayerName] = (rollType, rollValue);
             }
@@ -2213,6 +2213,7 @@ public class LootTrackingService : IDisposable
 
             // Unsubscribe from chat events
             Plugin.ChatGui.ChatMessage -= OnChatMessage;
+            Plugin.Framework.Update -= OnFrameworkUpdate;
 
             lock (lootHistoryLock)
             {
@@ -2228,11 +2229,56 @@ public class LootTrackingService : IDisposable
     }
 }
 
+/// <summary>The outcomes a player can have on one item, as shown in the roll window.</summary>
+public static class RollKind
+{
+    public const string Need = "Need";
+    public const string Greed = "Greed";
+
+    /// <summary>Chose something, but the game keeps the choice hidden until the item is resolved.</summary>
+    public const string Decided = "Decided";
+
+    public const string Pass = "Pass";
+
+    /// <summary>The game wouldn't let this player roll, e.g. a unique item they already own.</summary>
+    public const string CantRoll = "Can't roll";
+
+    /// <summary>A party member who never chose before the item closed (the game passes for them).</summary>
+    public const string NoRoll = "No roll";
+
+    public static bool IsRoll(string kind) => kind is Need or Greed;
+
+    /// <summary>Your own Need/Greed before the game reveals its value.</summary>
+    public const int PendingValue = -1;
+
+    public static int Order(string kind) => kind switch
+    {
+        Need => 0,
+        Greed => 1,
+        Decided => 2,
+        Pass => 3,
+        CantRoll => 4,
+        _ => 5,
+    };
+}
+
+public enum RollCloseReason
+{
+    None,
+    /// <summary>The item left the game's loot list: everyone chose, or its timer ran out.</summary>
+    Finished,
+    /// <summary>We left the duty before the item was resolved.</summary>
+    LeftDuty,
+}
+
 /// <summary>
 /// Tracks information about an active loot roll
 /// </summary>
 public class RollInfo
 {
+    /// <summary>How long the game keeps an item up for rolls.</summary>
+    public const float DefaultRollSeconds = 300f;
+
     public string ItemName { get; set; } = string.Empty;
     public uint ItemId { get; set; }
     public uint IconId { get; set; }
@@ -2240,9 +2286,32 @@ public class RollInfo
     public Dictionary<string, (string RollType, int RollValue)> PlayerRolls { get; set; } = new();
     public DateTime RollStartTime { get; set; } = DateTime.Now;
     public string WinnerName { get; set; } = string.Empty;
-    
+
+    /// <summary>Index of this item in the game's loot list, or -1 until it has been matched.</summary>
+    public int LootSlot { get; set; } = -1;
+
+    /// <summary>When the game will close rolling on this item. Estimated from the start time until the loot list is read.</summary>
+    public DateTime Deadline { get; set; } = DateTime.Now.AddSeconds(DefaultRollSeconds);
+    public float TimerSeconds { get; set; } = DefaultRollSeconds;
+
+    /// <summary>Where the loot dropped; rolls can't follow you out of that zone.</summary>
+    public uint TerritoryId { get; set; } = Plugin.ClientState.TerritoryType;
+
+    public DateTime? ClosedAt { get; set; }
+    public RollCloseReason CloseReason { get; set; }
+
+    /// <summary>When the item was awarded or closed, whichever came first; drives how long it stays on screen.</summary>
+    public DateTime? FinishedAt { get; set; }
+
+    /// <summary>Awarded, or closed without us seeing who got it.</summary>
+    public bool IsFinished => FinishedAt.HasValue;
+
+    public double SecondsLeft => Math.Max(0, (Deadline - DateTime.Now).TotalSeconds);
+
+    public int RolledCount => PlayerRolls.Values.Count(r => RollKind.IsRoll(r.RollType));
+
     /// <summary>
-    /// Get rolls sorted by value (highest first), with Need rolls before Greed
+    /// Every player on this item, Need first, then Greed (each by roll value), then passes and non-rolls.
     /// </summary>
     public IEnumerable<(string PlayerName, string RollType, int RollValue, bool IsWinner)> GetSortedRolls()
     {
@@ -2253,7 +2322,8 @@ public class RollInfo
                 RollValue: kvp.Value.RollValue,
                 IsWinner: !string.IsNullOrEmpty(WinnerName) && kvp.Key == WinnerName
             ))
-            .OrderByDescending(r => r.RollType == "Need" ? 1 : 0) // Need before Greed
-            .ThenByDescending(r => r.RollValue); // Then by roll value
+            .OrderBy(r => RollKind.Order(r.RollType))
+            .ThenByDescending(r => r.RollValue)
+            .ThenBy(r => r.PlayerName, StringComparer.OrdinalIgnoreCase);
     }
 }

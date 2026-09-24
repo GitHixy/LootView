@@ -8,7 +8,7 @@ A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goat
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.4.0-D6B068)
+![Version](https://img.shields.io/badge/version-1.5.0-D6B068)
 
 ---
 
@@ -35,7 +35,14 @@ Turn it off in **Settings → General → Market prices** if you'd rather the pl
 
 ### Need / Greed rolls
 
-A panel appears while rolls are open, listing every roll as it comes in with Need and Greed marked separately, your own name highlighted, and a crown on the winner. It closes itself 15 seconds after the last item is awarded, with a countdown ring so you know it's about to go. You can turn it off entirely in the settings.
+A panel appears while rolls are open, with a card for every item on the loot list:
+
+- **Time left** to roll, as a countdown and a bar that turns amber and then red as it runs out.
+- **Every result**: Need and Greed rolls with their values, passes, items you aren't allowed to roll on, and party members who never chose. Your own choice shows the moment you make it; everyone else's is revealed by the game once the item is resolved.
+- **Who is still deciding** in your party while the item is open.
+- **The winner**, crowned, with a burst of light and sparks on the card as the result comes in.
+
+Each resolved item leaves the panel on its own after 20 seconds (adjustable in **Settings → Tracking**), and the panel closes when none are left. If you leave the duty before rolls finish, the open items wind down the same way. You can turn the panel off entirely in the settings.
 
 ### Statistics and history
 
@@ -104,10 +111,11 @@ Settings are grouped into sections down the left of the window.
 | Section | What's in it |
 | --- | --- |
 | **General** | Open on login, open when a duty starts, show only your loot, how many items the list keeps (10–200), server info bar button, market price estimates |
-| **Tracking** | Track party loot, show the Need/Greed roll window |
+| **Tracking** | Track party loot, show the Need/Greed roll window, how long results stay on screen |
 | **Appearance** | Lock position and size, background opacity |
 | **Effects** | Item tooltips, particle effects and their intensity |
 | **History** | Keep a permanent history, auto-save every 5 minutes, save to history when clearing the list |
+| **Diagnostics** | LootView's live log, a one-click report to paste into a bug report, and buttons to report a bug or suggest a feature on GitHub |
 | **About** | Version, release notes, links |
 
 ---
@@ -146,6 +154,8 @@ changing it, so the two files stay in step.
 ## Release notes
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
+
+**1.5.0** rebuilds the roll panel around the whole life of a loot roll: a timer on every item, passes and non-rolls in the results, who is still deciding, a flourish for the winner, and results that clear themselves after a configurable time. It also adds a Diagnostics page for reporting bugs and suggesting features.
 
 **1.4.0** is a complete visual overhaul: one coherent theme across every window, a redesigned settings window, properly drawn statistics charts, and a rebuilt loot list and roll panel. The Compact and Neon layouts were removed — Classic is now the only view and received all of the design work. Statistics were also moved off the draw thread, so large histories no longer freeze the game.
 

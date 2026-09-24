@@ -46,6 +46,8 @@ public class Configuration
     public bool TrackGatheringLoot { get; set; } = true;
     public bool TrackCraftingLoot { get; set; } = false;
     public bool EnableRollTracking { get; set; } = true;
+    /// <summary>How long a resolved item stays in the roll window before it disappears.</summary>
+    public int RollResultSeconds { get; set; } = 20;
     public bool ShowDtrBar { get; set; } = true; // Show button in server info bar
 
     // Visual Effects

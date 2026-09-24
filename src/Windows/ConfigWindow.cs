@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
+using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
@@ -15,6 +18,18 @@ public class ConfigWindow : Window
 
     private int section;
 
+    private const string RepoUrl = "https://github.com/GitHixy/LootView";
+    private const int ReportLineLimit = 200;
+
+    // Diagnostics view state. The filtered list is rebuilt only when the log or the filter changes.
+    private int logLevelFilter;
+    private string logSearch = string.Empty;
+    private bool logAutoScroll = true;
+    private readonly HashSet<LogEntry> selectedLogLines = [];
+    private List<LogEntry> visibleLogLines = [];
+    private (int Revision, int Level, string Search) logViewKey = (-1, -1, string.Empty);
+    private int scrolledRevision = -1;
+
     private static readonly (FontAwesomeIcon Icon, string Label, string Blurb)[] Sections =
     [
         (FontAwesomeIcon.SlidersH, "General", "Window behaviour and what the tracker shows"),
@@ -22,6 +37,7 @@ public class ConfigWindow : Window
         (FontAwesomeIcon.PaintBrush, "Appearance", "How the overlay sits on your screen"),
         (FontAwesomeIcon.Magic, "Effects", "Drop flourishes and item tooltips"),
         (FontAwesomeIcon.Database, "History", "Long-term storage and statistics"),
+        (FontAwesomeIcon.Bug, "Diagnostics", "Logs, bug reports and feature ideas"),
         (FontAwesomeIcon.InfoCircle, "About", "Version, links and support"),
     ];
 
@@ -63,7 +79,8 @@ public class ConfigWindow : Window
                 case 2: DrawAppearance(); break;
                 case 3: DrawEffects(); break;
                 case 4: DrawHistory(); break;
-                case 5: DrawAbout(); break;
+                case 5: DrawDiagnostics(); break;
+                case 6: DrawAbout(); break;
             }
 
             ImGui.Dummy(new Vector2(0, 8));
@@ -257,6 +274,31 @@ public class ConfigWindow : Window
             {
                 plugin.LootTracker.ClearAllRolls();
             }
+        }
+
+        if (config.EnableRollTracking)
+        {
+            ImGui.Dummy(new Vector2(0, 4));
+            ImGui.Indent(10);
+
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "Keep results for");
+            ImGui.SameLine(0, 6);
+            Theme.HelpMarker("How many seconds an awarded item stays in the roll window before it disappears.");
+            ImGui.SameLine(0, 14);
+
+            var resultSeconds = config.RollResultSeconds;
+            if (Theme.SliderInt("##RollResultSeconds", ref resultSeconds, 5, 120, 210f))
+            {
+                config.RollResultSeconds = resultSeconds;
+                configService.Save();
+            }
+
+            ImGui.SameLine(0, 8);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, "seconds");
+
+            ImGui.Unindent(10);
         }
 
         ImGui.Dummy(new Vector2(0, 10));
@@ -471,6 +513,202 @@ public class ConfigWindow : Window
             Theme.Good);
     }
 
+    private void DrawDiagnostics()
+    {
+        Theme.SectionHeader("Feedback", FontAwesomeIcon.CommentDots);
+
+        Theme.Callout(FontAwesomeIcon.Bug, "Something not working?",
+            "1. Make the problem happen again, then come back to this page.\n" +
+            "2. Press Copy report. It copies your LootView version, a few settings and the log below. " +
+            "Click individual lines first if you only want to share those.\n" +
+            "3. Press Report a bug, tell me what you did, what you expected and what happened instead, " +
+            "then paste the report into the issue.",
+            Theme.Warn);
+
+        ImGui.Dummy(new Vector2(0, 6));
+        Theme.Callout(FontAwesomeIcon.Lightbulb, "Have an idea?",
+            "Issues are also the place for feature requests. Press Suggest a feature and describe what you'd " +
+            "like LootView to do and how it would help you. No log needed.",
+            Theme.Crystal);
+
+        ImGui.Dummy(new Vector2(0, 8));
+        if (Theme.PrimaryButton("Report a bug", new Vector2(140, 32)))
+            OpenUrl(NewIssueUrl("bug", "[Bug] ",
+                "**What happened?**\n\n\n**What did you expect?**\n\n\n**Steps to reproduce**\n1. \n\n" +
+                "**Diagnostics report**\n<!-- Settings → Diagnostics → Copy report, then paste here -->\n"));
+
+        ImGui.SameLine(0, 8);
+        if (Theme.GhostButton("Suggest a feature", new Vector2(150, 32), Theme.Crystal))
+            OpenUrl(NewIssueUrl("enhancement", "[Feature] ",
+                "**What would you like LootView to do?**\n\n\n**How would it help you?**\n\n"));
+
+        ImGui.SameLine(0, 8);
+        if (Theme.GhostButton("Open issues", new Vector2(120, 32)))
+            OpenUrl($"{RepoUrl}/issues");
+
+        ImGui.Dummy(new Vector2(0, 12));
+        Theme.SectionHeader("Log", FontAwesomeIcon.Terminal);
+
+        RefreshLogView();
+
+        if (Theme.SegmentedControl("##LogLevel", ref logLevelFilter, "All", "Info", "Warnings", "Errors"))
+            RefreshLogView();
+
+        ImGui.SameLine(0, 10);
+        ImGui.SetNextItemWidth(Math.Max(ImGui.GetContentRegionAvail().X, 120f));
+        if (ImGui.InputTextWithHint("##LogSearch", "Filter log lines", ref logSearch, 100))
+            RefreshLogView();
+
+        ImGui.Dummy(new Vector2(0, 4));
+        var copyLabel = selectedLogLines.Count > 0 ? $"Copy report ({selectedLogLines.Count})" : "Copy report";
+        if (Theme.PrimaryButton(copyLabel, new Vector2(150, 30)))
+        {
+            ImGui.SetClipboardText(BuildReport());
+        }
+        if (ImGui.IsItemHovered())
+            Theme.Tooltip(selectedLogLines.Count > 0
+                ? "Copies your setup and the selected lines, ready to paste into an issue."
+                : $"Copies your setup and the last {ReportLineLimit} lines shown, ready to paste into an issue.");
+
+        ImGui.SameLine(0, 8);
+        if (Theme.GhostButton("Copy lines only", new Vector2(130, 30)))
+        {
+            ImGui.SetClipboardText(string.Join("\n", ReportLines().Select(e => e.Format())));
+        }
+
+        if (selectedLogLines.Count > 0)
+        {
+            ImGui.SameLine(0, 8);
+            if (Theme.GhostButton("Deselect", new Vector2(90, 30)))
+                selectedLogLines.Clear();
+        }
+
+        ImGui.SameLine(0, 8);
+        if (Theme.DangerButton("Clear", new Vector2(70, 30)))
+        {
+            Plugin.Log.Clear();
+            selectedLogLines.Clear();
+            RefreshLogView();
+        }
+
+        ImGui.SameLine(0, 12);
+        ImGui.AlignTextToFramePadding();
+        ImGui.Checkbox("Auto-scroll", ref logAutoScroll);
+
+        ImGui.Dummy(new Vector2(0, 4));
+        DrawLogLines();
+
+        ImGui.Dummy(new Vector2(0, 6));
+        Theme.Callout(FontAwesomeIcon.UserSecret, "Check before you share",
+            "The log can contain character names from your party. Feel free to remove anything you'd rather keep private " +
+            "before posting. It only lives in memory and is cleared when the game closes.",
+            Theme.TextMuted);
+    }
+
+    private void DrawLogLines()
+    {
+        var height = Math.Max(ImGui.GetContentRegionAvail().Y - 70f, 240f);
+        using var card = Theme.Card("##LogCard", new Vector2(0, height));
+        if (!card) return;
+
+        using var rows = Theme.Region("##LogRows", Vector2.Zero, ImGuiWindowFlags.HorizontalScrollbar);
+        if (!rows) return;
+
+        if (visibleLogLines.Count == 0)
+        {
+            ImGui.TextColored(Theme.TextFaint, logViewKey.Level == 0 && logSearch.Length == 0
+                ? "Nothing logged yet."
+                : "No lines match the current filter.");
+            return;
+        }
+
+        for (var i = 0; i < visibleLogLines.Count; i++)
+        {
+            var entry = visibleLogLines[i];
+            var selected = selectedLogLines.Contains(entry);
+
+            using (ImRaii.PushColor(ImGuiCol.Text, LevelColor(entry.Level)))
+            {
+                if (ImGui.Selectable($"{entry.Format()}##log{i}", selected))
+                {
+                    if (!selectedLogLines.Remove(entry))
+                        selectedLogLines.Add(entry);
+                }
+            }
+
+            using var popup = ImRaii.ContextPopupItem($"##logctx{i}");
+            if (popup.Success && ImGui.Selectable("Copy this line"))
+                ImGui.SetClipboardText(entry.Format());
+        }
+
+        if (logAutoScroll && scrolledRevision != Plugin.Log.Revision)
+        {
+            ImGui.SetScrollHereY(1f);
+            scrolledRevision = Plugin.Log.Revision;
+        }
+    }
+
+    private void RefreshLogView()
+    {
+        var key = (Plugin.Log.Revision, logLevelFilter, logSearch);
+        if (key == logViewKey) return;
+        logViewKey = key;
+
+        var minLevel = (LogLevel)logLevelFilter;
+        visibleLogLines = Plugin.Log.Snapshot()
+            .Where(e => e.Level >= minLevel)
+            .Where(e => logSearch.Length == 0
+                        || e.Message.Contains(logSearch, StringComparison.OrdinalIgnoreCase)
+                        || (e.Exception?.Contains(logSearch, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+
+        // Lines that scrolled out of the buffer can't be copied any more.
+        var all = Plugin.Log.Snapshot().ToHashSet();
+        selectedLogLines.RemoveWhere(e => !all.Contains(e));
+    }
+
+    private IEnumerable<LogEntry> ReportLines()
+    {
+        return selectedLogLines.Count > 0
+            ? selectedLogLines.OrderBy(e => e.Time)
+            : visibleLogLines.Skip(Math.Max(0, visibleLogLines.Count - ReportLineLimit));
+    }
+
+    private string BuildReport()
+    {
+        var config = configService.Configuration;
+        var sb = new StringBuilder();
+
+        sb.AppendLine("### LootView diagnostics");
+        sb.AppendLine($"- LootView: {Changelog.CurrentVersion}");
+        sb.AppendLine($"- Dalamud: {typeof(Dalamud.Plugin.IDalamudPluginInterface).Assembly.GetName().Version}");
+        sb.AppendLine($"- Game language: {Plugin.ClientState.ClientLanguage}");
+        sb.AppendLine($"- Settings: party loot {OnOff(config.TrackAllPartyLoot)}, only my loot {OnOff(config.ShowOnlyOwnLoot)}, " +
+                      $"roll window {OnOff(config.EnableRollTracking)}, history {OnOff(config.EnableHistoryTracking)}, " +
+                      $"market prices {OnOff(config.EnableMarketPrices)}");
+        sb.AppendLine($"- Generated: {DateTime.Now:yyyy-MM-dd HH:mm}");
+        sb.AppendLine();
+        sb.AppendLine("```text");
+        foreach (var entry in ReportLines())
+            sb.AppendLine(entry.Format());
+        sb.AppendLine("```");
+
+        return sb.ToString();
+
+        static string OnOff(bool value) => value ? "on" : "off";
+    }
+
+    private static Vector4 LevelColor(LogLevel level) => level switch
+    {
+        LogLevel.Error => Theme.Bad,
+        LogLevel.Warning => Theme.Warn,
+        LogLevel.Info => Theme.Text,
+        _ => Theme.TextMuted,
+    };
+
+    private static string NewIssueUrl(string label, string title, string body)
+        => $"{RepoUrl}/issues/new?labels={label}&title={Uri.EscapeDataString(title)}&body={Uri.EscapeDataString(body)}";
+
     private void DrawAbout()
     {
         Theme.SectionHeader("LootView", FontAwesomeIcon.Gem);
@@ -504,7 +742,11 @@ public class ConfigWindow : Window
 
         ImGui.SameLine(0, 10);
         if (Theme.GhostButton("GitHub", new Vector2(110, 34)))
-            OpenUrl("https://github.com/GitHixy/LootView");
+            OpenUrl(RepoUrl);
+
+        ImGui.SameLine(0, 10);
+        if (Theme.GhostButton("Report a problem", new Vector2(150, 34)))
+            section = Array.FindIndex(Sections, s => s.Label == "Diagnostics");
 
         ImGui.Dummy(new Vector2(0, 14));
         Theme.SectionHeader("Shortcuts", FontAwesomeIcon.Keyboard);

@@ -32,11 +32,15 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] public static IGameGui GameGui { get; private set; } = null!;
     [PluginService] public static IDataManager DataManager { get; private set; } = null!;
     [PluginService] public static IChatGui ChatGui { get; private set; } = null!;
-    [PluginService] public static IPluginLog Log { get; private set; } = null!;
+    [PluginService] public static IPluginLog DalamudLog { get; private set; } = null!;
+
+    /// <summary>Plugin-wide logger: writes to Dalamud's log and keeps a copy for the Diagnostics page.</summary>
+    public static DiagnosticsLog Log { get; } = new(() => DalamudLog);
     [PluginService] public static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] public static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
     [PluginService] public static ICondition Condition { get; private set; } = null!;
     [PluginService] public static IDtrBar DtrBar { get; private set; } = null!;
+    [PluginService] public static IPartyList PartyList { get; private set; } = null!;
 
     // Plugin Services
     public LootTrackingService LootTracker { get; private set; }
@@ -401,6 +405,9 @@ public sealed class Plugin : IDalamudPlugin
             // Otherwise it's marked as abandoned/failed
             HistoryService.EndCurrentDuty();
             currentDuty = null;
+
+            // The game won't tell us how rolls we walked out on ended, so let the roll window wind down.
+            LootTracker.CloseAllRolls(RollCloseReason.LeftDuty);
         }
         catch (Exception ex)
         {
