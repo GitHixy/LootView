@@ -28,6 +28,12 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.5.1", "Support moves to Patreon",
+        [
+            new(NoteKind.Changed, "The support buttons in the loot window, Settings and What's New now open LootView's "
+                                  + "Patreon page instead of Ko-fi. Everything stays free, as always."),
+        ]),
+
         new("1.5.0", "Roll timers, passes and feedback",
         [
             new(NoteKind.Added, "Every item in the roll window shows how long is left to roll on it, with a bar that "

@@ -4,11 +4,11 @@
 
 A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goatcorp/Dalamud). It shows drops live as they happen, keeps a permanent searchable history, and turns that history into statistics about where your loot actually comes from.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O4O81NUMC7)
+[![Patreon](https://img.shields.io/badge/Patreon-Support%20me-FF424D?logo=patreon&logoColor=white)](https://www.patreon.com/GitHixy)
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.5.0-D6B068)
+![Version](https://img.shields.io/badge/version-1.5.1-D6B068)
 
 ---
 
@@ -98,7 +98,7 @@ You can also toggle the overlay from the server info bar, next to the server nam
 | Table | Loot table for the duty you're in *(only shown inside a duty)* |
 | Lock | Pin the window's position and size |
 | Cog | Settings |
-| Coffee | Ko-fi |
+| Heart | Support on Patreon |
 
 Right-click a row to blacklist the item or copy its name. Hover a row for the full item details.
 
@@ -155,6 +155,8 @@ changing it, so the two files stay in step.
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
 
+**1.5.1** replaces the Ko-fi links with Patreon.
+
 **1.5.0** rebuilds the roll panel around the whole life of a loot roll: a timer on every item, passes and non-rolls in the results, who is still deciding, a flourish for the winner, and results that clear themselves after a configurable time. It also adds a Diagnostics page for reporting bugs and suggesting features.
 
 **1.4.0** is a complete visual overhaul: one coherent theme across every window, a redesigned settings window, properly drawn statistics charts, and a rebuilt loot list and roll panel. The Compact and Neon layouts were removed — Classic is now the only view and received all of the design work. Statistics were also moved off the draw thread, so large histories no longer freeze the game.
@@ -169,9 +171,9 @@ Issues, feature requests and pull requests are all welcome — use the [issue tr
 
 ## Support the plugin
 
-LootView is free and always will be. If it's saved you some time, a coffee is genuinely appreciated.
+LootView is free and always will be. If it's saved you some time, support on Patreon is genuinely appreciated.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O4O81NUMC7)
+[![Patreon](https://img.shields.io/badge/Patreon-Support%20me-FF424D?logo=patreon&logoColor=white)](https://www.patreon.com/GitHixy)
 
 ## Licence
 

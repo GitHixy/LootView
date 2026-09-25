@@ -144,9 +144,9 @@ public class ChangelogWindow : Window
         }
 
         ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Ko-fi", new Vector2(110, ImGui.GetFrameHeight() + 6), Theme.Crystal))
+        if (Theme.GhostButton("Patreon", new Vector2(110, ImGui.GetFrameHeight() + 6), Theme.Crystal))
         {
-            OpenUrl("https://ko-fi.com/hixyllian");
+            OpenUrl("https://www.patreon.com/GitHixy");
         }
 
         ImGui.SameLine(0, 10);

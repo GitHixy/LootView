@@ -731,13 +731,13 @@ public class ConfigWindow : Window
         ImGui.Dummy(new Vector2(0, 14));
         Theme.SectionHeader("Support", FontAwesomeIcon.Heart);
 
-        using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.13f, 0.59f, 0.95f, 0.85f))
-                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.20f, 0.68f, 1.0f, 1.0f))
-                   .Push(ImGuiCol.ButtonActive, new Vector4(0.10f, 0.50f, 0.85f, 1.0f))
+        using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(1.0f, 0.26f, 0.30f, 0.85f))
+                   .Push(ImGuiCol.ButtonHovered, new Vector4(1.0f, 0.36f, 0.40f, 1.0f))
+                   .Push(ImGuiCol.ButtonActive, new Vector4(0.85f, 0.20f, 0.24f, 1.0f))
                    .Push(ImGuiCol.Text, Theme.Text))
         {
-            if (ImGui.Button("Buy me a coffee on Ko-fi", new Vector2(230, 34)))
-                OpenUrl("https://ko-fi.com/hixyllian");
+            if (ImGui.Button("Support me on Patreon", new Vector2(230, 34)))
+                OpenUrl("https://www.patreon.com/GitHixy");
         }
 
         ImGui.SameLine(0, 10);

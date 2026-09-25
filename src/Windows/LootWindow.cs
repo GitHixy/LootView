@@ -25,8 +25,8 @@ public class LootWindow : Window
     /// <summary>Breathing room between the quantity chip and the player column.</summary>
     private const float QtyGutter = 14f;
 
-    /// <summary>Ko-fi's brand blue, the one exception to the Eorzean palette.</summary>
-    private static readonly Vector4 KofiBlue = new(0.13f, 0.59f, 0.95f, 1.0f);
+    /// <summary>Patreon's brand coral, the one exception to the Eorzean palette.</summary>
+    private static readonly Vector4 PatreonCoral = new(1.0f, 0.26f, 0.30f, 1.0f);
 
     private readonly Plugin plugin;
     private readonly List<ParticleEffect> particles = new();
@@ -255,9 +255,9 @@ public class LootWindow : Window
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##Kofi", FontAwesomeIcon.Coffee, "Support development on Ko-fi", KofiBlue, false, btn))
+            if (Theme.IconButton("##Patreon", FontAwesomeIcon.Heart, "Support development on Patreon", PatreonCoral, false, btn))
             {
-                OpenUrl("https://ko-fi.com/hixyllian");
+                OpenUrl("https://www.patreon.com/GitHixy");
             }
         }
 
