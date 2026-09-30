@@ -224,10 +224,8 @@ public class LootTableWindow : Window
                     if (iconTexture != null)
                     {
                         ImGui.Image(iconTexture.Handle, new Vector2(28, 28));
-                        if (ImGui.IsItemHovered())
-                        {
-                            Theme.Tooltip($"{item.ItemName}\nItem Level {item.ItemLevel}\n{item.Category}\nSource: {item.Source}");
-                        }
+                        ItemUnlocks.DrawIconSeal(ImGui.GetWindowDrawList(), ImGui.GetItemRectMax(), UnlockStatusOf(item), 12f);
+                        DrawItemInteractions(item, drawMenu: false);
                     }
                 }
                 catch { /* Ignore icon loading errors */ }
@@ -239,6 +237,8 @@ public class LootTableWindow : Window
             Theme.RarityGem(item.Rarity, 9f);
             ImGui.SameLine(0, 7);
             ImGui.TextColored(itemColor, item.ItemName);
+            if (item.ItemId > 0)
+                DrawItemInteractions(item, drawMenu: true);
 
             // Item Level column
             ImGui.TableSetColumnIndex(2);
@@ -271,6 +271,39 @@ public class LootTableWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// Item tooltip on hover and the item menu on right-click, for the item just drawn. The icon and
+    /// the name both open the menu, but only one of them may draw it.
+    /// </summary>
+    private void DrawItemInteractions(LootTableService.LootTableEntry item, bool drawMenu)
+    {
+        if (ImGui.IsItemHovered() && plugin.Configuration.ShowTooltips)
+        {
+            ItemTooltip.Show(item.ItemId, false, string.IsNullOrEmpty(item.Source) ? null : () =>
+            {
+                ItemTooltip.Row(FontAwesomeIcon.Bullseye, "Source", item.Source);
+                if (!string.IsNullOrEmpty(item.DropRate))
+                    ItemTooltip.Row(FontAwesomeIcon.Percentage, "Drop rate", item.DropRate);
+            }, "Right-click for Try On and more", UnlockStatusOf(item));
+        }
+
+        var popupId = $"##tablectx_{item.ItemId}";
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+            ImGui.OpenPopup(popupId);
+
+        if (!drawMenu) return;
+
+        using var popup = ImRaii.Popup(popupId);
+        if (!popup) return;
+
+        ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
+        ImGui.Separator();
+        ItemActions.DrawMenuItems(item.ItemId, item.ItemName, plugin.MarketPriceService.IsMarketable(item.ItemId));
+    }
+
+    private UnlockStatus UnlockStatusOf(LootTableService.LootTableEntry item)
+        => plugin.Configuration.ShowUnlockStatus ? ItemUnlocks.Get(item.ItemId) : UnlockStatus.NotCollectible;
 
     private void DrawFilterBar()
     {

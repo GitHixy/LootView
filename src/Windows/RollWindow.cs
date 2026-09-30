@@ -19,6 +19,10 @@ public class RollWindow : Window
     private const float IconSize = 34f;
     private const float RowHeight = 21f;
     private const float TimerBarHeight = 3f;
+    private const float ActionButtonHeight = 28f;
+
+    /// <summary>The action bar's buttons plus the rule and breathing room above them.</summary>
+    private const float ActionBarHeight = ActionButtonHeight + 13f;
 
     private readonly Plugin plugin;
 
@@ -96,9 +100,15 @@ public class RollWindow : Window
 
             var localPlayerName = Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "You";
 
-            for (var index = 0; index < activeRolls.Count; index++)
+            // Items still waiting for your choice come first, newest on top; resolved ones sink below.
+            var ordered = activeRolls
+                .OrderBy(r => r.IsFinished)
+                .ThenByDescending(r => r.IsFinished ? r.FinishedAt : r.RollStartTime)
+                .ToList();
+
+            foreach (var roll in ordered)
             {
-                DrawRollCard(activeRolls[index], localPlayerName, index);
+                DrawRollCard(roll, localPlayerName);
             }
         }
         catch (Exception ex)
@@ -162,6 +172,14 @@ public class RollWindow : Window
             ImGui.TextColored(Theme.TextFaint, $"closing in {Math.Ceiling(remaining):F0}s");
         }
 
+        // While the game's own loot window is kept hidden, offer a way back to it.
+        if (plugin.NativeLootWindow.IsHidden)
+        {
+            ImGui.SetCursorScreenPos(new Vector2(origin.X + width - 52f, origin.Y + (h - 24f) * 0.5f));
+            if (Theme.IconButton("##ShowNative", FontAwesomeIcon.WindowRestore, "Show the game's Need/Greed window", Theme.Crystal, false, 24f))
+                plugin.NativeLootWindow.Reveal();
+        }
+
         // Close button, right aligned.
         ImGui.SetCursorScreenPos(new Vector2(origin.X + width - 24f, origin.Y + (h - 24f) * 0.5f));
         if (Theme.IconButton("##CloseRolls", FontAwesomeIcon.Times, "Close and clear all rolls", Theme.Bad, false, 24f))
@@ -175,9 +193,10 @@ public class RollWindow : Window
         Theme.Rule(4f);
     }
 
-    private void DrawRollCard(Services.RollInfo rollInfo, string localPlayerName, int index)
+    private void DrawRollCard(Services.RollInfo rollInfo, string localPlayerName)
     {
-        using var id = ImRaii.PushId($"roll_{index}_{rollInfo.ItemId}");
+        // Keyed by the session rather than its position, so an open menu survives the list reordering.
+        using var id = ImRaii.PushId(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(rollInfo));
 
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
@@ -197,7 +216,9 @@ public class RollWindow : Window
 
         var placeholderRow = sortedRolls.Count == 0 && waiting.Count == 0 ? 1 : 0;
         var rowsHeight = (sortedRolls.Count + placeholderRow + (waiting.Count > 0 ? 1 : 0)) * RowHeight;
-        var cardHeight = 14f + IconSize + 8f + rowsHeight + (finished ? 0 : TimerBarHeight + 6f);
+        var actionBar = !finished && plugin.Configuration.ShowRollButtons &&
+                        (Services.LootTrackingService.IsRollPending(rollInfo) || plugin.LootTracker.GetRollOptions(rollInfo).Any);
+        var cardHeight = 14f + IconSize + 8f + rowsHeight + (actionBar ? ActionBarHeight : 0) + (finished ? 0 : TimerBarHeight + 6f);
 
         var max = new Vector2(origin.X + width, origin.Y + cardHeight);
 
@@ -233,6 +254,7 @@ public class RollWindow : Window
                     dl.AddImage(tex.Handle, iconPos, iconPos + new Vector2(IconSize, IconSize));
                     dl.AddRect(iconPos, iconPos + new Vector2(IconSize, IconSize),
                         Theme.U32(rarityColor, 0.7f), 4f, ImDrawFlags.None, 1f);
+                    ItemUnlocks.DrawIconSeal(dl, iconPos + new Vector2(IconSize, IconSize), UnlockStatusOf(rollInfo), 14f);
                 }
             }
             catch { /* Ignore icon errors */ }
@@ -242,6 +264,12 @@ public class RollWindow : Window
         var textX = origin.X + 12f + IconSize + 11f;
         ImGui.SetCursorScreenPos(new Vector2(textX, origin.Y + 10f));
         ImGui.TextColored(rarityColor, rollInfo.ItemName);
+        DrawItemInteractions(rollInfo, drawMenu: false);
+
+        // The icon answers to hover and right-click just like the name.
+        ImGui.SetCursorScreenPos(iconPos);
+        ImGui.InvisibleButton("##icon", new Vector2(IconSize, IconSize));
+        DrawItemInteractions(rollInfo, drawMenu: true);
 
         // Time left to roll, or until a resolved item leaves the window, right aligned on the name line.
         if (SecondsUntilHidden(rollInfo) is { } hideIn)
@@ -311,6 +339,12 @@ public class RollWindow : Window
             Theme.ClipText(dl, new Vector2(origin.X + 40f, textY), width - 58f,
                 $"Waiting on {string.Join(", ", waiting)}", Theme.U32(Theme.TextFaint));
             rowY += RowHeight;
+        }
+
+        if (actionBar)
+        {
+            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY + 6f, width - 24f);
+            rowY += ActionBarHeight;
         }
 
         // Timer bar along the bottom of open items.
@@ -480,6 +514,134 @@ public class RollWindow : Window
                 dl.AddCircleFilled(pos, particle.Size * 2f,
                     ImGui.GetColorU32(new Vector4(particle.Color.X, particle.Color.Y, particle.Color.Z, particle.Color.W * 0.25f)), 12);
                 break;
+        }
+    }
+
+    private UnlockStatus UnlockStatusOf(Services.RollInfo rollInfo)
+        => plugin.Configuration.ShowUnlockStatus ? ItemUnlocks.Get(rollInfo.ItemId) : UnlockStatus.NotCollectible;
+
+    /// <summary>Item tooltip on hover and the item menu on right-click, for the item just drawn.</summary>
+    private void DrawItemInteractions(Services.RollInfo rollInfo, bool drawMenu)
+    {
+        if (ImGui.IsItemHovered() && plugin.Configuration.ShowTooltips)
+        {
+            ItemTooltip.Show(rollInfo.ItemId, rollInfo.IsHq,
+                () => ItemTooltip.MarketRow(plugin, rollInfo.ItemId, rollInfo.IsHq),
+                "Right-click for Try On and more", UnlockStatusOf(rollInfo));
+        }
+
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+            ImGui.OpenPopup("##rollctx");
+
+        if (!drawMenu)
+            return;
+
+        using var popup = ImRaii.Popup("##rollctx");
+        if (!popup) return;
+
+        ImGui.TextColored(Theme.RarityColor(rollInfo.Rarity), rollInfo.ItemName);
+        ImGui.Separator();
+        ItemActions.DrawMenuItems(rollInfo.ItemId, rollInfo.ItemName, plugin.MarketPriceService.IsMarketable(rollInfo.ItemId));
+    }
+
+    /// <summary>
+    /// Your Need, Greed and Pass buttons, a full-width bar set apart from the results above it.
+    /// Choices the game won't accept from you are greyed out, and the bar gives way to a note
+    /// while a click is in flight.
+    /// </summary>
+    private void DrawActionBar(ImDrawListPtr dl, Services.RollInfo rollInfo, float left, float y, float width)
+    {
+        var tracker = plugin.LootTracker;
+
+        dl.AddLine(new Vector2(left, y), new Vector2(left + width, y), Theme.U32(Theme.Line, 0.7f), 1f);
+        y += 7f;
+
+        if (Services.LootTrackingService.IsRollPending(rollInfo))
+        {
+            var note = $"Rolling {rollInfo.PendingChoice}...";
+            var ns = ImGui.CalcTextSize(note);
+            var center = left + width * 0.5f;
+            dl.AddRectFilled(new Vector2(left, y), new Vector2(left + width, y + ActionButtonHeight), Theme.U32(Theme.Gold, 0.08f), Theme.Radius);
+            Theme.DrawSpinner(dl, new Vector2(center - ns.X * 0.5f - 12f, y + ActionButtonHeight * 0.5f), 5f, 1.6f, Theme.Gold);
+            dl.AddText(new Vector2(center - ns.X * 0.5f + 2f, y + (ActionButtonHeight - ns.Y) * 0.5f), Theme.U32(Theme.GoldBright), note);
+            return;
+        }
+
+        var options = tracker.GetRollOptions(rollInfo);
+
+        (Services.RollChoice Choice, FontAwesomeIcon Icon, bool Allowed, Vector4 Color, string? Blocked)[] buttons =
+        [
+            (Services.RollChoice.Need, FontAwesomeIcon.Dice, options.CanNeed, Theme.Good, options.NeedBlockedReason),
+            (Services.RollChoice.Greed, FontAwesomeIcon.Coins, options.CanGreed, Theme.Crystal, "You can only pass on this item."),
+            (Services.RollChoice.Pass, FontAwesomeIcon.Times, options.CanPass, Theme.Bad, null),
+        ];
+
+        const float gap = 6f;
+        var buttonWidth = (width - gap * (buttons.Length - 1)) / buttons.Length;
+
+        for (var i = 0; i < buttons.Length; i++)
+        {
+            var (choice, icon, allowed, color, blocked) = buttons[i];
+            var label = choice.ToString();
+            var min = new Vector2(left + i * (buttonWidth + gap), y);
+            var max = min + new Vector2(buttonWidth, ActionButtonHeight);
+
+            ImGui.SetCursorScreenPos(min);
+            var clicked = ImGui.InvisibleButton($"##roll_{label}", max - min);
+            var hovered = ImGui.IsItemHovered();
+            var held = ImGui.IsItemActive();
+
+            Vector4 textColor;
+            if (allowed)
+            {
+                // Solid, bevelled buttons: a real control, not another tag like the result pills.
+                var fill = held ? 0.55f : hovered ? 0.42f : 0.26f;
+                dl.AddRectFilled(min, max, Theme.U32(Theme.Mix(Theme.Panel, color, fill)), Theme.Radius);
+                dl.AddRectFilledMultiColor(min, new Vector2(max.X, min.Y + ActionButtonHeight * 0.5f),
+                    Theme.U32(Theme.Lighten(color, 0.4f), 0.14f), Theme.U32(Theme.Lighten(color, 0.4f), 0.14f),
+                    Theme.U32(color, 0f), Theme.U32(color, 0f));
+                dl.AddRect(min, max, Theme.U32(color, hovered ? 1f : 0.7f), Theme.Radius, ImDrawFlags.None, hovered ? 1.6f : 1.2f);
+                textColor = hovered ? Theme.Lighten(color, 0.55f) : Theme.Lighten(color, 0.3f);
+
+                if (hovered)
+                {
+                    var text = choice == Services.RollChoice.Pass ? $"Pass on {rollInfo.ItemName}" : $"Roll {label} on {rollInfo.ItemName}";
+                    if (choice == Services.RollChoice.Need && UnlockStatusOf(rollInfo) == UnlockStatus.Unlocked)
+                        text += "\nYou already have this unlocked.";
+                    Theme.Tooltip(text);
+                }
+
+                if (clicked)
+                    tracker.Roll(rollInfo, choice);
+            }
+            else
+            {
+                dl.AddRectFilled(min, max, Theme.U32(Theme.Surface, 0.5f), Theme.Radius);
+                dl.AddRect(min, max, Theme.U32(Theme.Line, 0.6f), Theme.Radius, ImDrawFlags.None, 1f);
+                textColor = Theme.Alpha(Theme.TextFaint, 0.7f);
+
+                if (hovered && blocked != null)
+                    Theme.Tooltip(blocked);
+            }
+
+            // Icon and label, centred together.
+            string glyph;
+            float glyphWidth;
+            using (ImRaii.PushFont(UiBuilder.IconFont))
+            {
+                glyph = icon.ToIconString();
+                glyphWidth = ImGui.CalcTextSize(glyph).X;
+            }
+
+            var ls = ImGui.CalcTextSize(label);
+            var contentX = min.X + (buttonWidth - glyphWidth - 6f - ls.X) * 0.5f;
+            var textY = min.Y + (ActionButtonHeight - ls.Y) * 0.5f;
+
+            using (ImRaii.PushFont(UiBuilder.IconFont))
+            {
+                dl.AddText(new Vector2(contentX, textY + 1f), Theme.U32(textColor), glyph);
+            }
+            dl.AddText(new Vector2(contentX + glyphWidth + 6f, textY), Theme.U32(textColor), label);
         }
     }
 

@@ -54,6 +54,9 @@ public static class Theme
     public static readonly Vector4 Warn = Rgb(0xE8, 0xB8, 0x4B);
     public static readonly Vector4 Bad = Rgb(0xE4, 0x69, 0x5F);
 
+    /// <summary>Discord's brand blurple, used only on the buttons that open the community server.</summary>
+    public static readonly Vector4 DiscordBlurple = Rgb(0x58, 0x65, 0xF2);
+
     // Rarity ramp, matched to the in-game item colours.
     public static readonly Vector4 RarityCommon = Rgb(0xE7, 0xE1, 0xD3);
     public static readonly Vector4 RarityUncommon = Rgb(0x6F, 0xE0, 0x84);

@@ -42,16 +42,27 @@ public class Configuration
 
     // Advanced
     public bool EnableDebugLogging { get; set; } = false;
+    /// <summary>
+    /// Fall back to the old reader that parses English chat text. Only honoured on English
+    /// clients; everyone else always uses the game's log messages.
+    /// </summary>
+    public bool UseLegacyChatReader { get; set; } = false;
     public bool TrackAllPartyLoot { get; set; } = true;
     public bool TrackGatheringLoot { get; set; } = true;
     public bool TrackCraftingLoot { get; set; } = false;
     public bool EnableRollTracking { get; set; } = true;
     /// <summary>How long a resolved item stays in the roll window before it disappears.</summary>
     public int RollResultSeconds { get; set; } = 20;
+    /// <summary>Need, Greed and Pass buttons on each open item in the roll window.</summary>
+    public bool ShowRollButtons { get; set; } = true;
+    /// <summary>Hide the game's own Need/Greed window while LootView's roll buttons can stand in for it.</summary>
+    public bool HideNativeRollWindow { get; set; } = true;
     public bool ShowDtrBar { get; set; } = true; // Show button in server info bar
 
     // Visual Effects
     public bool ShowTooltips { get; set; } = true;
+    /// <summary>Mark minions, mounts, cards and other collectibles you already have, or still need.</summary>
+    public bool ShowUnlockStatus { get; set; } = true;
     public bool EnableParticleEffects { get; set; } = true;
     public float ParticleIntensity { get; set; } = 1.0f; // 0.0 to 2.0, controls particle count
 

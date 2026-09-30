@@ -128,24 +128,7 @@ public partial class LootTrackingService
                 return;
             }
 
-            var itemId = itemData.Value.ItemId;
-
-            lock (rollLock)
-            {
-                var rollInfo = activeRolls.FirstOrDefault(r =>
-                    r.ItemId == itemId && !r.IsFinished && FindPlayerKey(r, playerName) == null);
-
-                if (rollInfo == null)
-                {
-                    Plugin.Log.Debug($"No open roll session for {playerName}'s lot on {itemData.Value.Name}");
-                    return;
-                }
-
-                rollInfo.PlayerRolls[playerName] = (RollKind.Decided, 0);
-            }
-
-            Plugin.Log.Info($"Lot cast: {playerName} decided on {itemData.Value.Name}");
-            RollsUpdated?.Invoke();
+            RecordCastLot(playerName, itemData.Value);
         }
         catch (Exception ex)
         {
@@ -221,6 +204,7 @@ public partial class LootTrackingService
                             continue;
 
                         roll.LootSlot = i;
+                        roll.IsHq = items[i].ItemId > 1_000_000;
                         boundSlots.Add(i);
                         slotTimeDirection[i] = 0;
                         lastSlotTime[i] = items[i].Time;
@@ -294,6 +278,10 @@ public partial class LootTrackingService
     /// </summary>
     private bool SyncLocalStatus(RollInfo roll, LootItem item)
     {
+        // The game has taken a choice, so a click from the roll window is no longer in flight.
+        if (item.RollResult != RollResult.UnAwarded)
+            roll.PendingChoice = null;
+
         var me = LocalPlayerName;
         if (FindRollerKey(roll, me) != null)
             return false;

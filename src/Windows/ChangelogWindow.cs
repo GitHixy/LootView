@@ -150,6 +150,12 @@ public class ChangelogWindow : Window
         }
 
         ImGui.SameLine(0, 10);
+        if (Theme.GhostButton("Discord", new Vector2(110, ImGui.GetFrameHeight() + 6), Theme.DiscordBlurple))
+        {
+            OpenUrl(Plugin.DiscordUrl);
+        }
+
+        ImGui.SameLine(0, 10);
         if (Theme.GhostButton("GitHub", new Vector2(110, ImGui.GetFrameHeight() + 6)))
         {
             OpenUrl("https://github.com/GitHixy/LootView");

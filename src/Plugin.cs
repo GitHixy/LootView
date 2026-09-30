@@ -38,6 +38,9 @@ public sealed class Plugin : IDalamudPlugin
     public static DiagnosticsLog Log { get; } = new(() => DalamudLog);
     [PluginService] public static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] public static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
+    [PluginService] public static ISigScanner SigScanner { get; private set; } = null!;
+    [PluginService] public static IUnlockState UnlockState { get; private set; } = null!;
+    [PluginService] public static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
     [PluginService] public static ICondition Condition { get; private set; } = null!;
     [PluginService] public static IDtrBar DtrBar { get; private set; } = null!;
     [PluginService] public static IPartyList PartyList { get; private set; } = null!;
@@ -48,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
     public HistoryService HistoryService { get; private set; }
     public LootTableService LootTableService { get; private set; }
     public MarketPriceService MarketPriceService { get; private set; }
+    public NativeLootWindowService NativeLootWindow { get; private set; }
     
     // DTR Bar Entry
     private IDtrBarEntry? dtrEntry;
@@ -60,6 +64,9 @@ public sealed class Plugin : IDalamudPlugin
     public RollWindow RollWindow { get; private set; }
     public ChangelogWindow ChangelogWindow { get; private set; }
     
+    /// <summary>The LootView community server: help, feedback and news.</summary>
+    public const string DiscordUrl = "https://discord.gg/9kjUjWDBkJ";
+
     // Configuration accessor for services
     public Configuration Configuration => ConfigService.Configuration;
 
@@ -89,6 +96,8 @@ public sealed class Plugin : IDalamudPlugin
             LootTracker = new LootTrackingService(ConfigService);
             LootTracker.SetHistoryService(HistoryService);
             LootTracker.LootObtained += OnLootObtained;
+
+            NativeLootWindow = new NativeLootWindowService(this);
 
             // Initialize windows
             LootWindow = new LootWindow(this);
@@ -152,6 +161,7 @@ public sealed class Plugin : IDalamudPlugin
             }
 
             // Dispose services in reverse order
+            NativeLootWindow?.Dispose();
             MarketPriceService?.Dispose();
             LootTableService?.Dispose();
             LootTracker?.Dispose();

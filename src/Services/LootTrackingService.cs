@@ -202,6 +202,8 @@ public partial class LootTrackingService : IDisposable
             // Subscribe to chat messages for loot detection
             Plugin.ChatGui.ChatMessage += OnChatMessage;
             Plugin.Framework.Update += OnFrameworkUpdate;
+            InitializeRollActions();
+            InitializeLogMessages();
             
             Plugin.Log.Info("Loot tracking service initialized successfully");
         }
@@ -216,6 +218,10 @@ public partial class LootTrackingService : IDisposable
     {
         try
         {
+            // Loot is read from log messages; this English chat reader is only the fallback.
+            if (UsesLogMessages)
+                return;
+
             var type = chatMessage.LogKind;
             var message = chatMessage.Message;
             var messageText = message.TextValue;
@@ -521,61 +527,7 @@ public partial class LootTrackingService : IDisposable
                 }
             }
             
-            var lootItem = new LootItem
-            {
-                ItemName = itemData?.Name ?? itemName,
-                ItemId = itemData?.ItemId ?? 0,
-                IconId = itemData?.IconId ?? 0,
-                Rarity = itemData?.Rarity ?? 1,
-                Quantity = quantity,
-                IsHQ = isHQ,
-                PlayerName = playerName,
-                PlayerContentId = isOwnLoot ? Plugin.PlayerState.ContentId : 0,
-                IsOwnLoot = isOwnLoot,
-                Source = LootSource.Unknown,
-                TerritoryType = (ushort)Plugin.ClientState.TerritoryType,
-                ZoneName = GetCurrentZoneName()
-            };
-
-            // Check if there was a roll for this item
-            lock (rollLock)
-            {
-                var itemId = itemData?.ItemId ?? 0;
-                // Prefer the session this player actually rolled on; passes never win.
-                var candidates = itemId > 0
-                    ? activeRolls.Where(r => r.ItemId == itemId && string.IsNullOrEmpty(r.WinnerName)).ToList()
-                    : new List<RollInfo>();
-                var rollInfo = candidates.FirstOrDefault(r => FindRollerKey(r, playerName) != null)
-                               ?? candidates.FirstOrDefault();
-                
-                if (rollInfo != null)
-                {
-                    string winnerRollName = FindRollerKey(rollInfo, playerName) ?? string.Empty;
-
-                    if (winnerRollName.Length > 0)
-                    {
-                        var roll = rollInfo.PlayerRolls[winnerRollName];
-                        lootItem.RollType = roll.RollType;
-                        lootItem.RollValue = roll.RollValue;
-                        Plugin.Log.Info($"Adding roll info to loot ('{playerName}' -> '{winnerRollName}'): {roll.RollType} {roll.RollValue}");
-                    }
-                    
-                    // Mark the winner in the roll info
-                    if (!string.IsNullOrEmpty(winnerRollName))
-                    {
-                        rollInfo.WinnerName = winnerRollName;
-                        rollInfo.FinishedAt ??= DateTime.Now;
-                        Plugin.Log.Info($"Winner marked: {winnerRollName} won {itemName}");
-                        
-                        // Notify that rolls have been updated (winner marked)
-                        RollsUpdated?.Invoke();
-                    }
-                    
-                    // Don't remove yet - let the RollWindow handle cleanup after display timeout
-                }
-            }
-
-            AddLootItem(lootItem);
+            RecordObtain(playerName, isOwnLoot, itemData, itemName, quantity, isHQ, LootSource.Unknown, linkRolls: true);
             
             Plugin.Log.Info($"Loot tracked: {playerName} obtained {itemName} x{quantity}" + (isHQ ? " HQ" : ""));
         }
@@ -1990,28 +1942,7 @@ public partial class LootTrackingService : IDisposable
                 return;
             }
 
-            // Create or update roll tracking for this item
-            lock (rollLock)
-            {
-                var itemId = itemData.Value.ItemId;
-                var itemName = itemData.Value.Name;
-                
-                // Always add a new roll session (allows multiple drops of the same item)
-                activeRolls.Add(new RollInfo
-                {
-                    ItemName = itemName,
-                    ItemId = itemId,
-                    IconId = itemData.Value.IconId,
-                    Rarity = itemData.Value.Rarity,
-                    RollStartTime = DateTime.Now
-                });
-                
-                Plugin.Log.Info($"Roll session started for: {itemName} (ID: {itemId})");
-                Plugin.Log.Info($"Total active roll sessions: {activeRolls.Count}");
-                
-                // Notify that rolls have been updated
-                RollsUpdated?.Invoke();
-            }
+            StartRollSession(itemData.Value);
         }
         catch (Exception ex)
         {
@@ -2162,42 +2093,7 @@ public partial class LootTrackingService : IDisposable
                 return;
             }
 
-            var itemId = itemData.Value.ItemId;
-            var cleanedPlayerName = playerName;
-
-            // Track the roll - find an active roll for this item that doesn't have this player's roll yet
-            lock (rollLock)
-            {
-                // Find the first roll session for this item that doesn't have this player's roll yet.
-                // A pass or "can't roll" placeholder from the same player is replaced by the real roll.
-                var rollInfo = activeRolls.FirstOrDefault(r => r.ItemId == itemId && !r.IsFinished && FindRollerKey(r, cleanedPlayerName) == null)
-                               ?? activeRolls.FirstOrDefault(r => r.ItemId == itemId && FindRollerKey(r, cleanedPlayerName) == null);
-                
-                if (rollInfo == null)
-                {
-                    // No matching session found, create a new one (shouldn't happen if loot list message was received)
-                    rollInfo = new RollInfo
-                    {
-                        ItemName = itemData.Value.Name,
-                        ItemId = itemId,
-                        IconId = itemData.Value.IconId,
-                        Rarity = itemData.Value.Rarity
-                    };
-                    activeRolls.Add(rollInfo);
-                    Plugin.Log.Warning($"Creating new roll session for {itemData.Value.Name} (loot list message may have been missed)");
-                }
-
-                var placeholder = FindPlayerKey(rollInfo, cleanedPlayerName);
-                if (placeholder != null)
-                    rollInfo.PlayerRolls.Remove(placeholder);
-
-                rollInfo.PlayerRolls[cleanedPlayerName] = (rollType, rollValue);
-            }
-
-            Plugin.Log.Info($"Roll tracked: {cleanedPlayerName} rolled {rollType} {rollValue} on {itemData.Value.Name}");
-            
-            // Notify that rolls have been updated
-            RollsUpdated?.Invoke();
+            RecordRoll(playerName, itemData.Value, rollType, rollValue);
         }
         catch (Exception ex)
         {
@@ -2214,6 +2110,7 @@ public partial class LootTrackingService : IDisposable
             // Unsubscribe from chat events
             Plugin.ChatGui.ChatMessage -= OnChatMessage;
             Plugin.Framework.Update -= OnFrameworkUpdate;
+            DisposeLogMessages();
 
             lock (lootHistoryLock)
             {
@@ -2289,6 +2186,13 @@ public class RollInfo
 
     /// <summary>Index of this item in the game's loot list, or -1 until it has been matched.</summary>
     public int LootSlot { get; set; } = -1;
+
+    /// <summary>Whether the item in the loot list is high quality; known once it has been matched.</summary>
+    public bool IsHq { get; set; }
+
+    /// <summary>A choice sent from the roll window that the game hasn't confirmed yet.</summary>
+    public RollChoice? PendingChoice { get; set; }
+    public DateTime PendingSince { get; set; }
 
     /// <summary>When the game will close rolling on this item. Estimated from the start time until the loot list is read.</summary>
     public DateTime Deadline { get; set; } = DateTime.Now.AddSeconds(DefaultRollSeconds);

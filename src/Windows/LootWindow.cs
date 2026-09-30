@@ -693,7 +693,12 @@ public class LootWindow : Window
         }
 
         dl.AddRect(pos, max, Theme.U32(rarityColor, item.Rarity >= 2 ? 0.7f : 0.28f), 4f, ImDrawFlags.None, 1f);
+
+        ItemUnlocks.DrawIconSeal(dl, max, UnlockStatusOf(item), 11f);
     }
+
+    private UnlockStatus UnlockStatusOf(LootItem item)
+        => plugin.ConfigService.Configuration.ShowUnlockStatus ? ItemUnlocks.Get(item.ItemId) : UnlockStatus.NotCollectible;
 
     /// <summary>The small gold "HQ" seal the game puts beside high-quality items.</summary>
     private static void DrawHqMark(ImDrawListPtr dl, Vector2 pos)
@@ -767,12 +772,8 @@ public class LootWindow : Window
             }
         }
 
-        Theme.Icon(FontAwesomeIcon.Copy, Theme.Crystal);
-        ImGui.SameLine(0, 8);
-        if (ImGui.MenuItem("Copy item name"))
-        {
-            ImGui.SetClipboardText(ToTitleCase(item.ItemName));
-        }
+        ImGui.Separator();
+        ItemActions.DrawMenuItems(item.ItemId, ToTitleCase(item.ItemName), plugin.MarketPriceService.IsMarketable(item.ItemId));
     }
 
     private static void OpenUrl(string url)
@@ -828,81 +829,29 @@ public class LootWindow : Window
         if (!plugin.ConfigService.Configuration.ShowTooltips)
             return;
 
-        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(13, 11))
-            .Push(ImGuiStyleVar.WindowRounding, Theme.Radius);
-        using var c = ImRaii.PushColor(ImGuiCol.PopupBg, new Vector4(0.055f, 0.078f, 0.122f, 0.98f))
-            .Push(ImGuiCol.Border, Theme.Alpha(Theme.RarityColor(item.Rarity), 0.55f));
-
-        ImGui.BeginTooltip();
-
-        var rarityColor = Theme.RarityColor(item.Rarity);
-
-        // Header: icon, name, rarity.
-        if (item.IconId > 0)
+        ItemTooltip.Show(item.ItemId, item.IsHQ, () =>
         {
-            try
+            if (item.Quantity > 1)
+                ItemTooltip.Row(FontAwesomeIcon.LayerGroup, "Quantity", $"x{item.Quantity}");
+            ItemTooltip.Row(FontAwesomeIcon.Bullseye, "Source", item.Source.ToString());
+            ItemTooltip.MarketRow(plugin, item.ItemId, item.IsHQ);
+
+            if (!string.IsNullOrEmpty(item.ZoneName))
+                ItemTooltip.Row(FontAwesomeIcon.MapMarkerAlt, "Zone", item.ZoneName);
+
+            if (!string.IsNullOrEmpty(item.RollType))
             {
-                var tex = Plugin.TextureProvider
-                    .GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(item.IconId))
-                    .GetWrapOrDefault();
-                if (tex != null)
-                {
-                    ImGui.Image(tex.Handle, new Vector2(36, 36));
-                    ImGui.SameLine(0, 10);
-                }
+                var rollColor = item.RollType == "Need" ? Theme.Good : Theme.Crystal;
+                ItemTooltip.Row(FontAwesomeIcon.Dice, item.RollType, item.RollValue.ToString(), rollColor);
             }
-            catch { /* Ignore icon loading errors */ }
-        }
 
-        ImGui.BeginGroup();
-        using (new Theme.FontScale(1.08f))
-        {
-            ImGui.TextColored(rarityColor, ToTitleCase(item.ItemName));
-        }
+            ImGui.Dummy(new Vector2(0, 2));
+            var playerColor = item.IsOwnLoot ? Theme.Good : Theme.Text;
+            Theme.IconText(item.IsOwnLoot ? FontAwesomeIcon.Star : FontAwesomeIcon.User,
+                item.IsOwnLoot ? "You obtained this" : item.PlayerName, playerColor);
 
-        Theme.RarityGem(item.Rarity, 9f);
-        ImGui.SameLine(0, 5);
-        ImGui.TextColored(Theme.Alpha(rarityColor, 0.8f), Theme.RarityName(item.Rarity));
-        if (item.IsHQ)
-        {
-            ImGui.SameLine(0, 8);
-            Theme.Badge("HQ", Theme.Warn);
-        }
-        ImGui.EndGroup();
-
-        Theme.Rule(5f);
-
-        TooltipRow(FontAwesomeIcon.LayerGroup, "Quantity", $"x{item.Quantity}");
-        TooltipRow(FontAwesomeIcon.Hashtag, "Item ID", item.ItemId.ToString());
-        TooltipRow(FontAwesomeIcon.Bullseye, "Source", item.Source.ToString());
-
-        if (!string.IsNullOrEmpty(item.ZoneName))
-            TooltipRow(FontAwesomeIcon.MapMarkerAlt, "Zone", item.ZoneName);
-
-        if (!string.IsNullOrEmpty(item.RollType))
-        {
-            var rollColor = item.RollType == "Need" ? Theme.Good : Theme.Crystal;
-            TooltipRow(FontAwesomeIcon.Dice, item.RollType, item.RollValue.ToString(), rollColor);
-        }
-
-        Theme.Rule(5f);
-
-        var playerColor = item.IsOwnLoot ? Theme.Good : Theme.Text;
-        Theme.IconText(item.IsOwnLoot ? FontAwesomeIcon.Star : FontAwesomeIcon.User,
-            item.IsOwnLoot ? "You obtained this" : item.PlayerName, playerColor);
-
-        ImGui.TextColored(Theme.TextFaint, $"{FormatTimeAgo(item.Timestamp)}  ·  {item.Timestamp:HH:mm:ss}");
-
-        ImGui.EndTooltip();
-    }
-
-    private static void TooltipRow(FontAwesomeIcon icon, string label, string value, Vector4? valueColor = null)
-    {
-        Theme.Icon(icon, Theme.TextFaint);
-        ImGui.SameLine(0, 8);
-        ImGui.TextColored(Theme.TextMuted, label);
-        ImGui.SameLine(115);
-        ImGui.TextColored(valueColor ?? Theme.Text, value);
+            ImGui.TextColored(Theme.TextFaint, $"{FormatTimeAgo(item.Timestamp)}  ·  {item.Timestamp:HH:mm:ss}");
+        }, "Right-click for Try On and more", UnlockStatusOf(item));
     }
 
     // ============================================================================

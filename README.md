@@ -5,14 +5,17 @@
 A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goatcorp/Dalamud). It shows drops live as they happen, keeps a permanent searchable history, and turns that history into statistics about where your loot actually comes from.
 
 [![Patreon](https://img.shields.io/badge/Patreon-Support%20me-FF424D?logo=patreon&logoColor=white)](https://www.patreon.com/GitHixy)
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9kjUjWDBkJ)
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.5.1-D6B068)
+![Version](https://img.shields.io/badge/version-1.6.0-D6B068)
 
 ---
 
 ## What it does
+
+Works with every game language: English, Japanese, German and French clients are all supported. Loot is read from the game's own log messages, so nothing depends on the English wording of the chat.
 
 ### Live loot overlay
 
@@ -41,6 +44,10 @@ A panel appears while rolls are open, with a card for every item on the loot lis
 - **Every result**: Need and Greed rolls with their values, passes, items you aren't allowed to roll on, and party members who never chose. Your own choice shows the moment you make it; everyone else's is revealed by the game once the item is resolved.
 - **Who is still deciding** in your party while the item is open.
 - **The winner**, crowned, with a burst of light and sparks on the card as the result comes in.
+- **Need, Greed and Pass buttons**, so you can roll without the game's loot window. Only the choices the game allows you are offered; Need is greyed out when your job can't use the item or the duty is Greed only.
+- **Item details** on hover and **Try On** on right-click, to judge an item by its stats or its look before you choose.
+- **Collectibles you already have**: minions, mounts, orchestrion rolls, Triple Triad cards, emotes, hairstyles and portrait frames show a check if they're already unlocked, or a gold star if they'd be new for you.
+- **The game's Need/Greed window stays hidden**, so every roll happens in LootView. A button in the panel's header brings it back when you want it, and you can turn this off in **Settings → Tracking**.
 
 Each resolved item leaves the panel on its own after 20 seconds (adjustable in **Settings → Tracking**), and the panel closes when none are left. If you leave the duty before rolls finish, the open items wind down the same way. You can turn the panel off entirely in the settings.
 
@@ -100,7 +107,7 @@ You can also toggle the overlay from the server info bar, next to the server nam
 | Cog | Settings |
 | Heart | Support on Patreon |
 
-Right-click a row to blacklist the item or copy its name. Hover a row for the full item details.
+Hover a row for the full item details: item level, jobs, damage or defense, bonuses, materia slots and market price. Right-click it to try the item on, open it on Garland Tools or Universalis, copy its name or blacklist it.
 
 ---
 
@@ -111,11 +118,11 @@ Settings are grouped into sections down the left of the window.
 | Section | What's in it |
 | --- | --- |
 | **General** | Open on login, open when a duty starts, show only your loot, how many items the list keeps (10–200), server info bar button, market price estimates |
-| **Tracking** | Track party loot, show the Need/Greed roll window, how long results stay on screen |
+| **Tracking** | Track party loot, show the Need/Greed roll window, how long results stay on screen, Need/Greed/Pass buttons, hide the game's Need/Greed window |
 | **Appearance** | Lock position and size, background opacity |
-| **Effects** | Item tooltips, particle effects and their intensity |
+| **Effects** | Item tooltips, marks on collectibles you already have, particle effects and their intensity |
 | **History** | Keep a permanent history, auto-save every 5 minutes, save to history when clearing the list |
-| **Diagnostics** | LootView's live log, a one-click report to paste into a bug report, and buttons to report a bug or suggest a feature on GitHub |
+| **Diagnostics** | LootView's live log, a one-click report to paste into a bug report, and buttons to report a bug or suggest a feature on GitHub, or to join the Discord |
 | **About** | Version, release notes, links |
 
 ---
@@ -155,6 +162,8 @@ changing it, so the two files stay in step.
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
 
+**1.6.0** makes LootView work with every game language (Japanese, German and French clients included), lets you roll Need, Greed or Pass straight from the roll panel (the game's own loot window now stays hidden), shows full item details on hover (stats, bonuses, materia, market price), marks collectibles you already have, and adds Try On and lookup links to the right-click menu. LootView also has a [Discord server](https://discord.gg/9kjUjWDBkJ) now.
+
 **1.5.1** replaces the Ko-fi links with Patreon.
 
 **1.5.0** rebuilds the roll panel around the whole life of a loot roll: a timer on every item, passes and non-rolls in the results, who is still deciding, a flourish for the winner, and results that clear themselves after a configurable time. It also adds a Diagnostics page for reporting bugs and suggesting features.
@@ -168,6 +177,12 @@ Full history is on the [Releases](https://github.com/GitHixy/LootView/releases) 
 ## Contributing
 
 Issues, feature requests and pull requests are all welcome — use the [issue tracker](https://github.com/GitHixy/LootView/issues). If you're reporting a bug, the Dalamud log (`/xllog`) and what you were doing at the time help a lot.
+
+## Community
+
+Questions, ideas, or just want to share a lucky drop? Join the [LootView Discord](https://discord.gg/9kjUjWDBkJ). It's also where new versions are announced first.
+
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9kjUjWDBkJ)
 
 ## Support the plugin
 

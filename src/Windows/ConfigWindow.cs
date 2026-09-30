@@ -298,6 +298,34 @@ public class ConfigWindow : Window
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextMuted, "seconds");
 
+            ImGui.Dummy(new Vector2(0, 4));
+            var showRollButtons = config.ShowRollButtons;
+            if (Theme.ToggleRow("Need / Greed / Pass buttons", ref showRollButtons,
+                    "Roll straight from the roll window. Only the choices the game allows you on each item are offered, and each click sends one roll, exactly like the game's own window."))
+            {
+                config.ShowRollButtons = showRollButtons;
+                configService.Save();
+            }
+
+            if (config.ShowRollButtons && !plugin.LootTracker.CanRollFromWindow)
+            {
+                ImGui.TextColored(Theme.Warn, "Unavailable in this game version - LootView needs an update.");
+            }
+
+            if (config.ShowRollButtons)
+            {
+                ImGui.Dummy(new Vector2(0, 4));
+                var hideNative = config.HideNativeRollWindow;
+                if (Theme.ToggleRow("Hide the game's Need/Greed window", ref hideNative,
+                        "Keeps the game's own loot window out of the way, so all your rolls happen in LootView. "
+                        + "The window still exists: the button in the roll panel's header brings it back whenever you need it."))
+                {
+                    config.HideNativeRollWindow = hideNative;
+                    configService.Save();
+                    plugin.NativeLootWindow.Refresh();
+                }
+            }
+
             ImGui.Unindent(10);
         }
 
@@ -407,9 +435,18 @@ public class ConfigWindow : Window
 
         var showTooltips = config.ShowTooltips;
         if (Theme.ToggleRow("Show item tooltips", ref showTooltips,
-                "Reveals rarity, source, zone and roll details when you hover a row."))
+                "Hover an item to see its item level, jobs, stats, bonuses, materia slots, description and market price."))
         {
             config.ShowTooltips = showTooltips;
+            configService.Save();
+        }
+
+        var showUnlockStatus = config.ShowUnlockStatus;
+        if (Theme.ToggleRow("Mark collectibles you already have", ref showUnlockStatus,
+                "Minions, mounts, orchestrion rolls, Triple Triad cards, emotes, hairstyles, portrait frames and other "
+                + "collectibles get a seal on their icon: a check if you've already unlocked them, a gold star if you haven't."))
+        {
+            config.ShowUnlockStatus = showUnlockStatus;
             configService.Save();
         }
 
@@ -513,6 +550,34 @@ public class ConfigWindow : Window
             Theme.Good);
     }
 
+    /// <summary>How loot is being read, and on English clients a way back to the old chat reader.</summary>
+    private void DrawDetection()
+    {
+        var config = configService.Configuration;
+        var isEnglish = Plugin.ClientState.ClientLanguage == Dalamud.Game.ClientLanguage.English;
+
+        Theme.SectionHeader("Detection", FontAwesomeIcon.Language);
+
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, 520f));
+        ImGui.TextColored(Theme.TextMuted, plugin.LootTracker.UsesLogMessages
+            ? $"Game language: {Plugin.ClientState.ClientLanguage}. Loot is read from the game's log messages, which work the same in every language."
+            : $"Game language: {Plugin.ClientState.ClientLanguage}. Loot is read with the old English chat reader.");
+        ImGui.PopTextWrapPos();
+
+        if (!isEnglish)
+            return;
+
+        ImGui.Dummy(new Vector2(0, 4));
+        var legacy = config.UseLegacyChatReader;
+        if (Theme.ToggleRow("Use the old English chat reader", ref legacy,
+                "Only if drops or rolls go missing: reads loot from the English chat text, the way LootView did "
+                + "before 1.6.0. Please report what went missing so it can be fixed."))
+        {
+            config.UseLegacyChatReader = legacy;
+            configService.Save();
+        }
+    }
+
     private void DrawDiagnostics()
     {
         Theme.SectionHeader("Feedback", FontAwesomeIcon.CommentDots);
@@ -528,7 +593,8 @@ public class ConfigWindow : Window
         ImGui.Dummy(new Vector2(0, 6));
         Theme.Callout(FontAwesomeIcon.Lightbulb, "Have an idea?",
             "Issues are also the place for feature requests. Press Suggest a feature and describe what you'd " +
-            "like LootView to do and how it would help you. No log needed.",
+            "like LootView to do and how it would help you. No log needed.\n" +
+            "For quick questions, or to talk ideas through first, join the LootView Discord.",
             Theme.Crystal);
 
         ImGui.Dummy(new Vector2(0, 8));
@@ -545,6 +611,13 @@ public class ConfigWindow : Window
         ImGui.SameLine(0, 8);
         if (Theme.GhostButton("Open issues", new Vector2(120, 32)))
             OpenUrl($"{RepoUrl}/issues");
+
+        ImGui.SameLine(0, 8);
+        if (Theme.GhostButton("Discord", new Vector2(100, 32), Theme.DiscordBlurple))
+            OpenUrl(Plugin.DiscordUrl);
+
+        ImGui.Dummy(new Vector2(0, 12));
+        DrawDetection();
 
         ImGui.Dummy(new Vector2(0, 12));
         Theme.SectionHeader("Log", FontAwesomeIcon.Terminal);
@@ -682,7 +755,7 @@ public class ConfigWindow : Window
         sb.AppendLine("### LootView diagnostics");
         sb.AppendLine($"- LootView: {Changelog.CurrentVersion}");
         sb.AppendLine($"- Dalamud: {typeof(Dalamud.Plugin.IDalamudPluginInterface).Assembly.GetName().Version}");
-        sb.AppendLine($"- Game language: {Plugin.ClientState.ClientLanguage}");
+        sb.AppendLine($"- Game language: {Plugin.ClientState.ClientLanguage} (detection: {(plugin.LootTracker.UsesLogMessages ? "log messages" : "English chat")})");
         sb.AppendLine($"- Settings: party loot {OnOff(config.TrackAllPartyLoot)}, only my loot {OnOff(config.ShowOnlyOwnLoot)}, " +
                       $"roll window {OnOff(config.EnableRollTracking)}, history {OnOff(config.EnableHistoryTracking)}, " +
                       $"market prices {OnOff(config.EnableMarketPrices)}");
@@ -739,6 +812,10 @@ public class ConfigWindow : Window
             if (ImGui.Button("Support me on Patreon", new Vector2(230, 34)))
                 OpenUrl("https://www.patreon.com/GitHixy");
         }
+
+        ImGui.SameLine(0, 10);
+        if (Theme.GhostButton("Join the Discord", new Vector2(150, 34), Theme.DiscordBlurple))
+            OpenUrl(Plugin.DiscordUrl);
 
         ImGui.SameLine(0, 10);
         if (Theme.GhostButton("GitHub", new Vector2(110, 34)))

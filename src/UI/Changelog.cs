@@ -28,6 +28,30 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.6.0", "Roll from the roll window, try gear on",
+        [
+            new(NoteKind.Added, "LootView now works with every game language: Japanese, German and French clients see "
+                                + "their drops and rolls just like English ones. Loot is read from the game's own log "
+                                + "messages rather than English chat text."),
+            new(NoteKind.Added, "Need, Greed and Pass buttons on every open item in the roll window, so you no longer "
+                                + "need the game's loot window. Only the choices the game allows you are offered: Need "
+                                + "is greyed out when your job can't use the item or the duty is Greed only. "
+                                + "Turn them off in Settings → Tracking."),
+            new(NoteKind.Added, "The game's own Need/Greed window now stays hidden, so every roll happens in LootView. "
+                                + "A button in the roll panel's header brings it back whenever you want it, and you can "
+                                + "turn this off in Settings → Tracking."),
+            new(NoteKind.Added, "Minions, mounts, orchestrion rolls, Triple Triad cards, emotes, hairstyles, portrait "
+                                + "frames and other collectibles carry a seal on their icon: a check if you already have "
+                                + "them, a gold star if you don't. Handy for knowing what's worth a Need."),
+            new(NoteKind.Added, "Hovering an item in the loot, roll or loot table window shows its full details: item "
+                                + "level, jobs, damage or defense, bonuses (HQ included), materia slots, traits, "
+                                + "description and market price."),
+            new(NoteKind.Added, "Right-click an item in any of those windows to try it on in the Fitting Room, open it "
+                                + "on Garland Tools or Universalis, or copy its name."),
+            new(NoteKind.Added, "LootView now has a Discord server for help, ideas and news. Join from Settings → About, "
+                                + "Settings → Diagnostics or the button below."),
+        ]),
+
         new("1.5.1", "Support moves to Patreon",
         [
             new(NoteKind.Changed, "The support buttons in the loot window, Settings and What's New now open LootView's "
