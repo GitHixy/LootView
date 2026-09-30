@@ -32,20 +32,29 @@ public partial class LootTrackingService
         Obtain,
     }
 
-    /// <summary>What a LogMessage row means, and where its values are. Parameter numbers are 1-based, as in the sheet.</summary>
+    /// <summary>
+    /// What a LogMessage row means, and where its values are. Parameter numbers are 1-based, as in
+    /// the sheet. Currencies the text names outright (gil, MGP, Grand Company seals) have no item
+    /// parameter: their item is <see cref="FixedItemId"/>, or <see cref="ItemOffset"/> plus the parameter.
+    /// </summary>
     private sealed record LogTemplate(
         LogEvent Event,
         int ItemParam,
         int QuantityParam,
         bool ActorIsSource,
         LootSource Source,
-        bool IsGil = false,
+        uint FixedItemId = 0,
+        uint ItemOffset = 0,
         int RollTypeParam = 0,
         int RollValueParam = 0,
         int SizeParam = 0,
         int SizeDecimalParam = 0);
 
     private const uint GilItemId = 1;
+    private const uint MgpItemId = 29;
+
+    /// <summary>Storm, Serpent and Flame Seals are items 20-22, in Grand Company order (1-3).</summary>
+    private const uint SealItemOffset = 19;
 
     private Dictionary<uint, LogTemplate>? logTemplates;
     private HashSet<string> needWords = new(StringComparer.OrdinalIgnoreCase);
@@ -105,15 +114,9 @@ public partial class LootTrackingService
             var isSelf = string.IsNullOrEmpty(actorName) || SameName(actorName, localName);
             var playerName = isSelf ? localName : actorName!;
 
-            if (template.IsGil)
-            {
-                var gil = GetInt(message, template.QuantityParam) ?? 0;
-                if (gil > 0 && GetItemDataById(GilItemId) is { } gilData)
-                    RecordObtain(localName, true, gilData, gilData.Name, (uint)gil, false, template.Source, linkRolls: false);
-                return;
-            }
-
-            var rawItemId = GetInt(message, template.ItemParam);
+            var rawItemId = template.FixedItemId > 0
+                ? (int)template.FixedItemId
+                : GetInt(message, template.ItemParam) + (int)template.ItemOffset;
             if (rawItemId is not > 0)
             {
                 Plugin.Log.Warning($"Log message {message.LogMessageId} has no item in parameter {template.ItemParam}: {DescribeParameters(message)}");
@@ -208,6 +211,7 @@ public partial class LootTrackingService
     private static readonly Regex OneCheck = new(@"\[lnum(\d+)(?:==|<=)1\]", RegexOptions.Compiled);
     private static readonly Regex StringRef = new(@"string\(lstr(\d+)\)", RegexOptions.Compiled);
     private static readonly Regex RollValue = new(@"<num\(lnum(\d+)\)>!", RegexOptions.Compiled);
+    private static readonly Regex GrandCompanyRef = new(@"\[lnum(\d+)==1\],Storm", RegexOptions.Compiled);
     private static readonly Regex FishSize = new(@"measuring <num\(lnum(\d+)\)>\.<num\(lnum(\d+)\)>", RegexOptions.Compiled);
 
     // Messages about loot you did *not* get, or about something else entirely.
@@ -270,7 +274,7 @@ public partial class LootTrackingService
             // "A bonus of [experience and] <kilo(lnum2)> gil..." - the gil is the last number.
             var numbers = NumberRef.Matches(text);
             return numbers.Count > 0
-                ? new LogTemplate(LogEvent.Obtain, 0, int.Parse(numbers[^1].Groups[1].Value), false, LootSource.DutyRoulette, IsGil: true)
+                ? new LogTemplate(LogEvent.Obtain, 0, int.Parse(numbers[^1].Groups[1].Value), false, LootSource.DutyRoulette, FixedItemId: GilItemId)
                 : null;
         }
 
@@ -287,13 +291,7 @@ public partial class LootTrackingService
             return null;
 
         if (itemParam == 0)
-        {
-            // "You obtain 1,000 gil."
-            var gil = text.Contains(" gil") ? NumberRef.Match(text) : null;
-            return gil is { Success: true } && source == LootSource.Unknown
-                ? new LogTemplate(LogEvent.Obtain, 0, int.Parse(gil.Groups[1].Value), actorIsSource, LootSource.Unknown, IsGil: true)
-                : null;
-        }
+            return source == LootSource.Unknown ? ClassifyCurrency(text, actorIsSource) : null;
 
         if (source == LootSource.Gathering && FishSize.Match(text) is { Success: true } fish)
         {
@@ -304,6 +302,26 @@ public partial class LootTrackingService
         }
 
         return new LogTemplate(LogEvent.Obtain, itemParam, QuantityParam(text, lastItem), actorIsSource, source.Value);
+    }
+
+    /// <summary>"You obtain 1,000 gil.", "... 500 MGP.", "... 800 Serpent Seals." - currencies named in the text.</summary>
+    private static LogTemplate? ClassifyCurrency(string text, bool actorIsSource)
+    {
+        var quantity = QuantityParam(text, null);
+        if (quantity == 0)
+            return null;
+
+        if (text.Contains(" gil"))
+            return new LogTemplate(LogEvent.Obtain, 0, quantity, actorIsSource, LootSource.Unknown, FixedItemId: GilItemId);
+
+        if (text.Contains(" MGP"))
+            return new LogTemplate(LogEvent.Obtain, 0, quantity, actorIsSource, LootSource.Unknown, FixedItemId: MgpItemId);
+
+        // "<if([lnum1==1],Storm,<if([lnum1==2],Serpent,Flame)>)> Seals" - the parameter is the Grand Company.
+        if (text.Contains("Serpent") && GrandCompanyRef.Match(text) is { Success: true } company)
+            return new LogTemplate(LogEvent.Obtain, int.Parse(company.Groups[1].Value), quantity, actorIsSource, LootSource.Unknown, ItemOffset: SealItemOffset);
+
+        return null;
     }
 
     /// <summary>
