@@ -44,6 +44,18 @@ public abstract class Window : IDisposable
     /// <summary>Called the frame the user closes the window with its title-bar button.</summary>
     protected virtual void OnClosed() { }
 
+    /// <summary>Scale of everything inside the window: text, and layouts sized with <see cref="Theme.Px"/>.</summary>
+    protected virtual float UiScale => 1f;
+
+    /// <summary>Called every frame before Begin, to adjust flags and constraints from the configuration.</summary>
+    protected virtual void BeforeDraw() { }
+
+    /// <summary>
+    /// Called after the window has ended, on frames it was drawn and not collapsed, with the
+    /// theme still pushed. For companion windows that attach to this one.
+    /// </summary>
+    protected virtual void DrawAfterWindow() { }
+
     protected Window(string name)
     {
         WindowName = name;
@@ -55,8 +67,11 @@ public abstract class Window : IDisposable
 
         try
         {
+            BeforeDraw();
+
             // The theme has to be pushed before Begin so the window chrome picks it up.
             using var theme = Theme.Push();
+            Theme.UiScale = UiScale;
 
             if (SizeConstraintMin.HasValue && SizeConstraintMax.HasValue)
             {
@@ -80,9 +95,13 @@ public abstract class Window : IDisposable
             }
 
             var wasOpen = isOpen;
+            var drawn = false;
 
             if (ImGui.Begin(WindowName, ref isOpen, WindowFlags))
             {
+                drawn = true;
+                ImGui.SetWindowFontScale(Theme.UiScale);
+
                 // Contents are guarded separately so a draw error can never skip End()
                 // and leave ImGui's window stack unbalanced.
                 try
@@ -99,11 +118,17 @@ public abstract class Window : IDisposable
             }
             ImGui.End();
 
+            if (drawn && isOpen)
+                DrawAfterWindow();
+
+            Theme.UiScale = 1f;
+
             if (wasOpen && !isOpen)
                 OnClosed();
         }
         catch (Exception ex)
         {
+            Theme.UiScale = 1f;
             Plugin.Log.Error(ex, "Error drawing window {WindowName}", WindowName);
         }
     }

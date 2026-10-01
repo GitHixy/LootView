@@ -312,8 +312,17 @@ public class RollWindow : Window
             Theme.Badge($"{rollInfo.PlayerRolls.Count} decided", Theme.Crystal);
         }
 
-        // Roll rows.
+        // Need / Greed / Pass sit right under the name, above the rolls: rows keep arriving
+        // while you decide, and in a 24-player alliance they used to push the buttons away
+        // from the cursor.
         var rowY = origin.Y + 9f + IconSize + 8f;
+        if (actionBar)
+        {
+            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY, width - 24f);
+            rowY += ActionBarHeight;
+        }
+
+        // Roll rows.
         if (placeholderRow > 0)
         {
             dl.AddText(new Vector2(origin.X + 18f, rowY), Theme.U32(Theme.TextFaint), "Waiting for rolls...");
@@ -339,12 +348,6 @@ public class RollWindow : Window
             Theme.ClipText(dl, new Vector2(origin.X + 40f, textY), width - 58f,
                 $"Waiting on {string.Join(", ", waiting)}", Theme.U32(Theme.TextFaint));
             rowY += RowHeight;
-        }
-
-        if (actionBar)
-        {
-            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY + 6f, width - 24f);
-            rowY += ActionBarHeight;
         }
 
         // Timer bar along the bottom of open items.

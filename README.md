@@ -9,7 +9,7 @@ A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goat
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.6.0-D6B068)
+![Version](https://img.shields.io/badge/version-1.6.1-D6B068)
 
 ---
 
@@ -36,6 +36,14 @@ Only sellable items are looked up — whether an item can reach the market board
 
 Turn it off in **Settings → General → Market prices** if you'd rather the plugin made no network requests while you play.
 
+### Currencies
+
+The coin button in the toolbar slides out a drawer beside the loot window, on the left or right as you prefer, listing every currency you hold: gil, tomestones, crafters' and gatherers' scrips, Grand Company seals, MGP, PvP marks, tribal currencies and the rest. Each one shows its cap, turning amber as you near it and red once you're there, and the weekly-limited tomestone carries a bar for the week's progress. Gains flash as they come in, and the button lights up when one lands while the drawer is closed. Currencies are read straight from the game, so new ones appear without an update.
+
+### Player commendations
+
+When someone commends you, a large banner appears at the top of the screen with your new total. Commendations that arrive together are counted on one banner instead of stacking, and it waits for the loading screen to finish when you leave a duty. Resize it, preview it or turn it off in **Settings → Effects**.
+
 ### Need / Greed rolls
 
 A panel appears while rolls are open, with a card for every item on the loot list:
@@ -47,6 +55,7 @@ A panel appears while rolls are open, with a card for every item on the loot lis
 - **Need, Greed and Pass buttons**, so you can roll without the game's loot window. Only the choices the game allows you are offered; Need is greyed out when your job can't use the item or the duty is Greed only.
 - **Item details** on hover and **Try On** on right-click, to judge an item by its stats or its look before you choose.
 - **Collectibles you already have**: minions, mounts, orchestrion rolls, Triple Triad cards, emotes, hairstyles and portrait frames show a check if they're already unlocked, or a gold star if they'd be new for you.
+- **Buttons that stay put**: Need, Greed and Pass sit right under the item name, above the rolls, so results coming in never push them away.
 - **The game's Need/Greed window stays hidden**, so every roll happens in LootView. A button in the panel's header brings it back when you want it, and you can turn this off in **Settings → Tracking**.
 
 Each resolved item leaves the panel on its own after 20 seconds (adjustable in **Settings → Tracking**), and the panel closes when none are left. If you leave the duty before rolls finish, the open items wind down the same way. You can turn the panel off entirely in the settings.
@@ -103,6 +112,7 @@ You can also toggle the overlay from the server info bar, next to the server nam
 | Broom | Clear the current list |
 | Chart | Open Statistics & History |
 | Table | Loot table for the duty you're in *(only shown inside a duty)* |
+| Coins | Slide the currency drawer in or out |
 | Lock | Pin the window's position and size |
 | Cog | Settings |
 | Heart | Support on Patreon |
@@ -117,10 +127,10 @@ Settings are grouped into sections down the left of the window.
 
 | Section | What's in it |
 | --- | --- |
-| **General** | Open on login, open when a duty starts, show only your loot, how many items the list keeps (10–200), server info bar button, market price estimates |
+| **General** | Open on login, open when a duty starts, show only your loot, how many items the list keeps (10–200), currency drawer and the side it opens on, server info bar button, market price estimates |
 | **Tracking** | Track party loot, show the Need/Greed roll window, how long results stay on screen, Need/Greed/Pass buttons, hide the game's Need/Greed window |
-| **Appearance** | Lock position and size, background opacity |
-| **Effects** | Item tooltips, marks on collectibles you already have, particle effects and their intensity |
+| **Appearance** | Lock position and size, loot window scale (60–140%), background opacity |
+| **Effects** | Item tooltips, marks on collectibles you already have, particle effects and their intensity, commendation banner and its size |
 | **History** | Keep a permanent history, auto-save every 5 minutes, save to history when clearing the list |
 | **Diagnostics** | LootView's live log, a one-click report to paste into a bug report, and buttons to report a bug or suggest a feature on GitHub, or to join the Discord |
 | **About** | Version, release notes, links |
@@ -161,6 +171,8 @@ changing it, so the two files stay in step.
 ## Release notes
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
+
+**1.6.1** adds a currency drawer beside the loot window (every currency you hold, with caps and the weekly tomestone limit), a banner when you're commended, and a scale slider for the loot window. The Need/Greed/Pass buttons now sit above the rolls so they stay put, and locking the window from Settings works straight away.
 
 **1.6.0** makes LootView work with every game language (Japanese, German and French clients included), lets you roll Need, Greed or Pass straight from the roll panel (the game's own loot window now stays hidden), shows full item details on hover (stats, bonuses, materia, market price), marks collectibles you already have, and adds Try On and lookup links to the right-click menu. LootView also has a [Discord server](https://discord.gg/9kjUjWDBkJ) now.
 

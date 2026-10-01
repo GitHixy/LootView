@@ -200,6 +200,33 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
+        ImGui.Dummy(new Vector2(0, 4));
+        var showCurrencies = config.ShowCurrencyPanel;
+        if (Theme.ToggleRow("Currency drawer", ref showCurrencies,
+                "A drawer that slides out beside the loot window, with every currency you hold, from gil and tomestones "
+                + "to scrips and seals, its cap and weekly limit. Open and close it with the coin button in the toolbar."))
+        {
+            config.ShowCurrencyPanel = showCurrencies;
+            configService.Save();
+        }
+
+        if (config.ShowCurrencyPanel)
+        {
+            ImGui.Dummy(new Vector2(0, 4));
+            ImGui.Indent(10);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "Slides out on the");
+            ImGui.SameLine(0, 14);
+
+            var side = config.CurrencyPanelOnLeft ? 0 : 1;
+            if (Theme.SegmentedControl("##CurrencySide", ref side, "Left", "Right"))
+            {
+                config.CurrencyPanelOnLeft = side == 0;
+                configService.Save();
+            }
+            ImGui.Unindent(10);
+        }
+
         ImGui.Dummy(new Vector2(0, 8));
         Theme.SectionHeader("Integration", FontAwesomeIcon.PlugCircleBolt);
 
@@ -356,6 +383,36 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
+        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.Text, "Loot window scale");
+        ImGui.SameLine(0, 6);
+        Theme.HelpMarker("Shrinks or enlarges everything in the loot window and the currency drawer: text, rows, icons and buttons. "
+                         + "The window resizes along with it.");
+        ImGui.SameLine(0, 14);
+
+        var scalePercent = (int)MathF.Round(config.LootWindowScale * 100f);
+        if (Theme.SliderInt("##LootWindowScale", ref scalePercent,
+                (int)(LootWindow.MinScale * 100), (int)(LootWindow.MaxScale * 100), 210f))
+        {
+            config.LootWindowScale = scalePercent / 100f;
+            configService.Save();
+        }
+
+        ImGui.SameLine(0, 8);
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextMuted, "%");
+
+        if (Math.Abs(config.LootWindowScale - 1f) > 0.001f)
+        {
+            ImGui.SameLine(0, 10);
+            if (Theme.GhostButton("Reset", new Vector2(60, 0)))
+            {
+                config.LootWindowScale = 1f;
+                configService.Save();
+            }
+        }
+
         ImGui.Dummy(new Vector2(0, 8));
         Theme.SectionHeader("Transparency", FontAwesomeIcon.Adjust);
 
@@ -482,6 +539,48 @@ public class ConfigWindow : Window
             ImGui.Dummy(new Vector2(0, 4));
             Theme.Meter(config.ParticleIntensity / 2f, 210f, 6f,
                 config.ParticleIntensity > 1.4f ? Theme.Warn : Theme.Gold);
+
+            ImGui.Unindent(10);
+        }
+
+        ImGui.Dummy(new Vector2(0, 8));
+        Theme.SectionHeader("Commendations", FontAwesomeIcon.Medal);
+
+        var showCommendationBanner = config.ShowCommendationBanner;
+        if (Theme.ToggleRow("Commendation banner", ref showCommendationBanner,
+                "A large banner at the top of the screen whenever another player commends you, with your new total."))
+        {
+            config.ShowCommendationBanner = showCommendationBanner;
+            configService.Save();
+        }
+
+        if (config.ShowCommendationBanner)
+        {
+            ImGui.Dummy(new Vector2(0, 4));
+            ImGui.Indent(10);
+
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "Banner size");
+            ImGui.SameLine(0, 14);
+
+            var bannerPercent = (int)MathF.Round(config.CommendationBannerScale * 100f);
+            if (Theme.SliderInt("##CommendationBannerScale", ref bannerPercent,
+                    (int)(CommendationBanner.MinScale * 100), (int)(CommendationBanner.MaxScale * 100), 210f))
+            {
+                config.CommendationBannerScale = bannerPercent / 100f;
+                configService.Save();
+            }
+
+            ImGui.SameLine(0, 8);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, "%");
+
+            ImGui.Dummy(new Vector2(0, 4));
+            if (Theme.GhostButton("Preview", new Vector2(110, 28)))
+                plugin.CommendationBanner.Preview();
+            ImGui.SameLine(0, 10);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextFaint, "Click again while it's up to see the counter");
 
             ImGui.Unindent(10);
         }

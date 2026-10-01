@@ -66,6 +66,7 @@ public static class ItemTooltip
             .Push(ImGuiCol.Border, Theme.Alpha(rarityColor, 0.55f));
 
         ImGui.BeginTooltip();
+        Theme.SetFontScale(1f);
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 22f);
 
         if (details == null)

@@ -28,6 +28,23 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.6.1", "Currencies, commendations and a scalable window",
+        [
+            new(NoteKind.Added, "A currency drawer slides out beside the loot window with every currency you hold: gil, "
+                                + "tomestones, scrips, seals, MGP, PvP marks, tribal currencies and more, with each cap "
+                                + "and the weekly tomestone limit. Gains flash as they come in. Open it with the coin "
+                                + "button in the toolbar, and pick the side it opens on in Settings → General."),
+            new(NoteKind.Added, "A large banner at the top of the screen when someone commends you. Commendations that "
+                                + "arrive together are counted on one banner, and it waits for the loading screen to "
+                                + "finish. Resize it, preview it or turn it off in Settings → Effects."),
+            new(NoteKind.Added, "Loot window scale: shrink or enlarge everything in the loot window, from 60% to 140%, "
+                                + "in Settings → Appearance. The window can now be made much smaller."),
+            new(NoteKind.Improved, "The Need, Greed and Pass buttons now sit right under the item name, so rolls coming "
+                                   + "in no longer push them away while you aim."),
+            new(NoteKind.Fixed, "Locking the window from Settings → Appearance now takes effect straight away."),
+            new(NoteKind.Fixed, "Grand Company seals and MGP are tracked again."),
+        ]),
+
         new("1.6.0", "Roll from the roll window, try gear on",
         [
             new(NoteKind.Added, "LootView now works with every game language: Japanese, German and French clients see "

@@ -28,6 +28,8 @@ public class Configuration
     public float BackgroundAlpha { get; set; } = 0.9f; // Background transparency for layouts
     public bool LockWindowPosition { get; set; } = false;
     public bool LockWindowSize { get; set; } = false;
+    /// <summary>Scale of the loot window's contents: text, rows, icons and buttons. 1 is the original size.</summary>
+    public float LootWindowScale { get; set; } = 1.0f;
     public int MaxDisplayedItems { get; set; } = 50;
 
     // Filtering
@@ -64,6 +66,10 @@ public class Configuration
     /// <summary>Mark minions, mounts, cards and other collectibles you already have, or still need.</summary>
     public bool ShowUnlockStatus { get; set; } = true;
     public bool EnableParticleEffects { get; set; } = true;
+    /// <summary>A large banner at the top of the screen when you receive a player commendation.</summary>
+    public bool ShowCommendationBanner { get; set; } = true;
+    /// <summary>Size of the commendation banner. 1 is the original size.</summary>
+    public float CommendationBannerScale { get; set; } = 1.0f;
     public float ParticleIntensity { get; set; } = 1.0f; // 0.0 to 2.0, controls particle count
 
     // History & Statistics
@@ -75,6 +81,14 @@ public class Configuration
     // Market prices
     /// <summary>Look up estimated values on Universalis for the player's home world.</summary>
     public bool EnableMarketPrices { get; set; } = true;
+
+    // Currencies
+    /// <summary>A drawer beside the loot window with every currency you hold and its cap.</summary>
+    public bool ShowCurrencyPanel { get; set; } = true;
+    /// <summary>Whether the currency drawer is pulled out.</summary>
+    public bool CurrencyPanelOpen { get; set; } = false;
+    /// <summary>Which side of the loot window the currency drawer slides out of.</summary>
+    public bool CurrencyPanelOnLeft { get; set; } = false;
 
     // Release notes
     /// <summary>Last plugin version whose changelog the user dismissed.</summary>

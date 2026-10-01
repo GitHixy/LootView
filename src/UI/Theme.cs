@@ -224,11 +224,23 @@ public static class Theme
     // Fonts
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// The scale of the window being drawn, set by <see cref="Windows.Window"/> around Begin/End.
+    /// Font scales are relative to it, and hand-placed layouts size themselves with <see cref="Px"/>.
+    /// </summary>
+    public static float UiScale { get; set; } = 1f;
+
+    /// <summary>A layout measurement in the current window's scale.</summary>
+    public static float Px(float value) => value * UiScale;
+
+    /// <summary>Sets the window font scale, relative to the window's own scale.</summary>
+    public static void SetFontScale(float scale) => ImGui.SetWindowFontScale(scale * UiScale);
+
     /// <summary>Temporarily scales the window font - use for titles and stat numerals.</summary>
     public readonly struct FontScale : IDisposable
     {
-        public FontScale(float scale) => ImGui.SetWindowFontScale(scale);
-        public void Dispose() => ImGui.SetWindowFontScale(1f);
+        public FontScale(float scale) => SetFontScale(scale);
+        public void Dispose() => SetFontScale(1f);
     }
 
     /// <summary>Draws a FontAwesome glyph inline.</summary>
@@ -569,10 +581,10 @@ public static class Theme
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
             var glyph = icon.ToIconString();
-            ImGui.SetWindowFontScale(1.9f);
+            SetFontScale(1.9f);
             var gs = ImGui.CalcTextSize(glyph);
             dl.AddText(new Vector2(max.X - gs.X - 11, p.Y + (h - gs.Y) * 0.5f), U32(accent, 0.16f), glyph);
-            ImGui.SetWindowFontScale(1f);
+            SetFontScale(1f);
         }
 
         ImGui.SetCursorScreenPos(new Vector2(p.X + 13, p.Y + 10));
@@ -806,6 +818,7 @@ public static class Theme
             .Push(ImGuiCol.Border, Alpha(Gold, 0.4f));
 
         ImGui.BeginTooltip();
+        SetFontScale(1f);
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 24f);
         ImGui.TextUnformatted(text);
         ImGui.PopTextWrapPos();
@@ -923,11 +936,11 @@ public static class Theme
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
-            ImGui.SetWindowFontScale(1.6f);
+            SetFontScale(1.6f);
             var glyph = icon.ToIconString();
             var gs = ImGui.CalcTextSize(glyph);
             dl.AddText(center - gs * 0.5f, U32(Gold, 0.55f), glyph);
-            ImGui.SetWindowFontScale(1f);
+            SetFontScale(1f);
         }
 
         ImGui.Dummy(new Vector2(0, 54));

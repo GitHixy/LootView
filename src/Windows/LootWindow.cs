@@ -15,15 +15,16 @@ namespace LootView.Windows;
 /// </summary>
 public class LootWindow : Window
 {
-    private const float RowHeight = 34f;
-    private const float IconSize = 24f;
+    // Layout measurements follow the window scale set in Appearance.
+    private static float RowHeight => Theme.Px(34f);
+    private static float IconSize => Theme.Px(24f);
     private const float HighlightSeconds = 2.5f;
 
     /// <summary>Horizontal padding inside the quantity chip.</summary>
-    private const float ChipPadding = 6f;
+    private static float ChipPadding => Theme.Px(6f);
 
     /// <summary>Breathing room between the quantity chip and the player column.</summary>
-    private const float QtyGutter = 14f;
+    private static float QtyGutter => Theme.Px(14f);
 
     /// <summary>Patreon's brand coral, the one exception to the Eorzean palette.</summary>
     private static readonly Vector4 PatreonCoral = new(1.0f, 0.26f, 0.30f, 1.0f);
@@ -46,9 +47,16 @@ public class LootWindow : Window
     /// </summary>
     private readonly Dictionary<(uint ItemId, bool IsHq, bool IsOwn), long> earned = new();
 
+    private readonly CurrencyDrawer currencyDrawer;
+
+    /// <summary>Where the window was drawn this frame, for the currency drawer to attach to.</summary>
+    private Vector2 windowPos;
+    private Vector2 windowSize;
+
     public LootWindow(Plugin plugin) : base("LootView###LootViewMain")
     {
         this.plugin = plugin;
+        currencyDrawer = new CurrencyDrawer(plugin);
 
         // Set initial visibility from config
         IsOpen = plugin.ConfigService.Configuration.IsVisible;
@@ -68,6 +76,9 @@ public class LootWindow : Window
     {
         if (item.ItemId == 0) return;
 
+        if (item.IsOwnLoot)
+            currencyDrawer.RequestRefresh();
+
         var key = (item.ItemId, item.IsHQ, item.IsOwnLoot);
         earned.TryGetValue(key, out var quantity);
         earned[key] = quantity + item.Quantity;
@@ -78,6 +89,25 @@ public class LootWindow : Window
     /// character-select screens and comes back once login completes.
     /// </summary>
     protected override bool ShouldDraw => Plugin.ClientState.IsLoggedIn;
+
+    /// <summary>The scale set in Appearance, clamped so a hand-edited config can't break the layout.</summary>
+    protected override float UiScale => Math.Clamp(plugin.ConfigService.Configuration.LootWindowScale, MinScale, MaxScale);
+
+    public const float MinScale = 0.6f;
+    public const float MaxScale = 1.4f;
+
+    /// <summary>The scale the window was last drawn at, to resize it along with a change.</summary>
+    private float drawnScale;
+
+    /// <summary>
+    /// Flags and minimum size follow the configuration every frame, so locking or rescaling from
+    /// the settings takes effect immediately, not only from the toolbar or after a reload.
+    /// </summary>
+    protected override void BeforeDraw()
+    {
+        UpdateWindowFlags();
+        SizeConstraintMin = new Vector2(430, 260) * UiScale;
+    }
 
     private void UpdateWindowFlags()
     {
@@ -126,6 +156,17 @@ public class LootWindow : Window
             var config = plugin.ConfigService.Configuration;
 
             BgAlpha = config.BackgroundAlpha;
+            // Rescaling resizes the window by the same factor, so the layout keeps its proportions.
+            var scale = UiScale;
+            if (drawnScale > 0 && Math.Abs(scale - drawnScale) > 0.001f)
+                ImGui.SetWindowSize(Vector2.Clamp(ImGui.GetWindowSize() * (scale / drawnScale), SizeConstraintMin!.Value, SizeConstraintMax!.Value));
+            drawnScale = scale;
+
+            windowPos = ImGui.GetWindowPos();
+            windowSize = ImGui.GetWindowSize();
+
+            if (config.ShowCurrencyPanel)
+                currencyDrawer.Update();
 
             if (config.EnableParticleEffects)
             {
@@ -170,30 +211,30 @@ public class LootWindow : Window
     {
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
-        const float barHeight = 30f;
+        var barHeight = Theme.Px(30f);
 
         // --- Wordmark -------------------------------------------------
-        var crest = new Vector2(origin.X + 11f, origin.Y + barHeight * 0.5f);
-        DrawCrest(dl, crest, 11f);
+        var crest = new Vector2(origin.X + Theme.Px(11f), origin.Y + barHeight * 0.5f);
+        DrawCrest(dl, crest, Theme.Px(11f));
 
         // Drawn rather than laid out so the byline can sit on the title's baseline.
-        ImGui.SetWindowFontScale(1.1f);
+        Theme.SetFontScale(1.1f);
         var titleSize = ImGui.CalcTextSize("LootView");
         var titleTop = origin.Y + (barHeight - titleSize.Y) * 0.5f;
-        dl.AddText(new Vector2(origin.X + 29f, titleTop), Theme.U32(Theme.GoldBright), "LootView");
+        dl.AddText(new Vector2(origin.X + Theme.Px(29f), titleTop), Theme.U32(Theme.GoldBright), "LootView");
 
-        ImGui.SetWindowFontScale(0.85f);
+        Theme.SetFontScale(0.85f);
         var bylineSize = ImGui.CalcTextSize("by GitHixy");
         dl.AddText(
-            new Vector2(origin.X + 29f + titleSize.X + 7f, titleTop + titleSize.Y - bylineSize.Y - 1f),
+            new Vector2(origin.X + Theme.Px(29f) + titleSize.X + 7f, titleTop + titleSize.Y - bylineSize.Y - 1f),
             Theme.U32(Theme.TextFaint), "by GitHixy");
-        ImGui.SetWindowFontScale(1f);
+        Theme.SetFontScale(1f);
 
         // --- Action cluster, right aligned ----------------------------
         var isInDuty = IsInDuty();
-        const float btn = 28f;
-        const float gap = 4f;
-        var buttonCount = isInDuty ? 7 : 6;
+        var btn = Theme.Px(28f);
+        var gap = Theme.Px(4f);
+        var buttonCount = (isInDuty ? 7 : 6) + (config.ShowCurrencyPanel ? 1 : 0);
         var clusterWidth = buttonCount * btn + (buttonCount - 1) * gap;
 
         var right = origin.X + ImGui.GetContentRegionAvail().X;
@@ -234,6 +275,26 @@ public class LootWindow : Window
                 {
                     plugin.LootTableWindow.IsOpen = true;
                     plugin.LootTableWindow.LoadCurrentZone();
+                }
+            }
+
+            if (config.ShowCurrencyPanel)
+            {
+                ImGui.SameLine();
+                var drawerOpen = config.CurrencyPanelOpen;
+                var buttonMin = ImGui.GetCursorScreenPos();
+                if (Theme.IconButton("##Currencies", FontAwesomeIcon.Coins,
+                        drawerOpen ? "Hide currencies" : "Show currencies", Theme.Gold, drawerOpen, btn))
+                {
+                    config.CurrencyPanelOpen = !drawerOpen;
+                    plugin.ConfigService.Save();
+                }
+
+                // A closed drawer still says when a currency went up.
+                if (!drawerOpen && currencyDrawer.HasRecentGain)
+                {
+                    var pulse = 0.5f + 0.5f * MathF.Sin(Theme.Time * 8f);
+                    dl.AddCircleFilled(buttonMin + new Vector2(btn - 5f, 5f), 3.5f, Theme.U32(Theme.GoldBright, 0.6f + 0.4f * pulse));
                 }
             }
 
@@ -354,7 +415,7 @@ public class LootWindow : Window
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var width = ImGui.GetContentRegionAvail().X;
-        const float h = 30f;
+        var h = Theme.Px(30f);
         var max = new Vector2(origin.X + width, origin.Y + h);
 
         dl.AddRectFilled(origin, max, Theme.U32(Theme.Surface, 0.55f), Theme.Radius);
@@ -365,7 +426,7 @@ public class LootWindow : Window
             Theme.U32(Theme.Gold, 0.9f), 1.5f);
 
         var textY = origin.Y + (h - ImGui.GetTextLineHeight()) * 0.5f;
-        var x = origin.X + 13f;
+        var x = origin.X + Theme.Px(13f);
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
@@ -429,7 +490,7 @@ public class LootWindow : Window
         if (unpriced > 0) notes.Add($"{unpriced} unpriced");
         if (!string.IsNullOrEmpty(market.WorldName)) notes.Add(market.WorldName);
 
-        const float resetSize = 20f;
+        var resetSize = Theme.Px(20f);
         var resetMin = new Vector2(max.X - 13f - resetSize, origin.Y + (h - resetSize) * 0.5f);
         var overReset = ImGui.IsMouseHoveringRect(resetMin, resetMin + new Vector2(resetSize, resetSize));
         var notesRight = resetMin.X - 8f;
@@ -501,25 +562,28 @@ public class LootWindow : Window
         var listWidth = Math.Max(avail.X - (needsScrollbar ? ImGui.GetStyle().ScrollbarSize : 0f), 80f);
 
         // Column geometry, resolved once per frame from the available width.
-        const float accentW = 3f;
-        const float iconX = 12f;
-        const float nameX = iconX + IconSize + 10f;
-        var timeW = 60f;
+        var accentW = Theme.Px(3f);
+        var iconX = Theme.Px(12f);
+        var nameX = iconX + IconSize + Theme.Px(10f);
+        var timeW = Theme.Px(60f);
 
         // The quantity chip is sized to the widest stack on screen plus a fixed gutter,
         // so four-digit counts never run into the player column.
         var widestQty = 0f;
         foreach (var item in lootItems)
             widestQty = Math.Max(widestQty, ImGui.CalcTextSize($"x{item.Quantity}").X);
-        var qtyW = Math.Clamp(widestQty + ChipPadding * 2f + QtyGutter, 46f, 110f);
+        var qtyW = Math.Clamp(widestQty + ChipPadding * 2f + QtyGutter, Theme.Px(46f), Theme.Px(110f));
 
-        var playerW = Math.Clamp(listWidth * 0.26f, 70f, 150f);
-        var nameW = Math.Max(listWidth - nameX - timeW - qtyW - playerW - 30f, 60f);
+        var playerW = Math.Clamp(listWidth * 0.26f, Theme.Px(70f), Theme.Px(150f));
+        var nameW = Math.Max(listWidth - nameX - timeW - qtyW - playerW - Theme.Px(30f), Theme.Px(60f));
 
         DrawColumnLabels(nameX, nameW, qtyW, playerW, timeW, listWidth);
 
         using var child = Theme.Region("LootItemsChild", new Vector2(avail.X, ImGui.GetContentRegionAvail().Y));
         if (!child) return;
+
+        // A child window starts at font scale 1; carry the window's scale into it.
+        Theme.SetFontScale(1f);
 
         var dl = ImGui.GetWindowDrawList();
         var config = plugin.ConfigService.Configuration;
@@ -590,7 +654,7 @@ public class LootWindow : Window
             var namePos = new Vector2(rowOrigin.X + nameX, textY);
             var name = ToTitleCase(item.ItemName);
 
-            var hqWidth = item.IsHQ ? 20f : 0f;
+            var hqWidth = item.IsHQ ? Theme.Px(20f) : 0f;
             DrawClipped(dl, namePos, nameW - hqWidth, name, Theme.U32(rarityColor));
 
             if (item.IsHQ)
@@ -704,7 +768,7 @@ public class LootWindow : Window
     private static void DrawHqMark(ImDrawListPtr dl, Vector2 pos)
     {
         var h = ImGui.GetTextLineHeight();
-        var size = new Vector2(18, h);
+        var size = new Vector2(Theme.Px(18f), h);
         var max = pos + size;
         dl.AddRectFilled(pos, max, Theme.U32(Theme.Warn, 0.2f), 3f);
         dl.AddRect(pos, max, Theme.U32(Theme.Warn, 0.6f), 3f, ImDrawFlags.None, 1f);
@@ -740,6 +804,7 @@ public class LootWindow : Window
     {
         using var popup = ImRaii.Popup($"##ctx_{item.Id}");
         if (!popup) return;
+        Theme.SetFontScale(1f);
 
         var config = plugin.ConfigService.Configuration;
         var isBlacklisted = config.BlacklistedItemIds?.Contains(item.ItemId) ?? false;
@@ -1065,6 +1130,8 @@ public class LootWindow : Window
             )
         };
     }
+
+    protected override void DrawAfterWindow() => currencyDrawer.Draw(windowPos, windowSize);
 
     public override void Dispose()
     {

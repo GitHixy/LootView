@@ -7,6 +7,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using LootView.Services;
+using LootView.UI;
 using LootView.Windows;
 using LootView.Models;
 
@@ -52,6 +53,7 @@ public sealed class Plugin : IDalamudPlugin
     public LootTableService LootTableService { get; private set; }
     public MarketPriceService MarketPriceService { get; private set; }
     public NativeLootWindowService NativeLootWindow { get; private set; }
+    public CommendationBanner CommendationBanner { get; private set; }
     
     // DTR Bar Entry
     private IDtrBarEntry? dtrEntry;
@@ -98,6 +100,7 @@ public sealed class Plugin : IDalamudPlugin
             LootTracker.LootObtained += OnLootObtained;
 
             NativeLootWindow = new NativeLootWindowService(this);
+            CommendationBanner = new CommendationBanner(ConfigService);
 
             // Initialize windows
             LootWindow = new LootWindow(this);
@@ -162,6 +165,7 @@ public sealed class Plugin : IDalamudPlugin
 
             // Dispose services in reverse order
             NativeLootWindow?.Dispose();
+            CommendationBanner?.Dispose();
             MarketPriceService?.Dispose();
             LootTableService?.Dispose();
             LootTracker?.Dispose();
@@ -224,6 +228,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         try
         {
+            CommendationBanner?.Draw();
             LootWindow?.Draw();
             ConfigWindow?.Draw();
             StatisticsWindow?.Draw();
