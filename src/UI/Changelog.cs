@@ -42,7 +42,6 @@ public static class Changelog
             new(NoteKind.Improved, "The Need, Greed and Pass buttons now sit right under the item name, so rolls coming "
                                    + "in no longer push them away while you aim."),
             new(NoteKind.Fixed, "Locking the window from Settings → Appearance now takes effect straight away."),
-            new(NoteKind.Fixed, "Grand Company seals and MGP are tracked again."),
         ]),
 
         new("1.6.0", "Roll from the roll window, try gear on",
