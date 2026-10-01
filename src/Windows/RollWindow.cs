@@ -71,6 +71,9 @@ public class RollWindow : Window
         }
     }
 
+    /// <summary>With our window gone, give the game's own back so the player can still roll.</summary>
+    protected override void OnClosed() => plugin.NativeLootWindow.Refresh();
+
     private double ResultSeconds => Math.Max(plugin.Configuration.RollResultSeconds, 1);
 
     /// <summary>Seconds until a resolved item leaves the window, or null while it is still open.</summary>

@@ -40,7 +40,10 @@ public sealed unsafe class NativeLootWindowService : IDisposable
         {
             var config = plugin.Configuration;
             return config.HideNativeRollWindow && config.EnableRollTracking && config.ShowRollButtons &&
-                   plugin.LootTracker.CanRollFromWindow && !revealed;
+                   plugin.LootTracker.CanRollFromWindow && !revealed &&
+                   // Only stand in for the game's window while ours is on screen, or the rolls
+                   // would be left with no window at all.
+                   plugin.RollWindow?.IsOpen == true;
         }
     }
 
