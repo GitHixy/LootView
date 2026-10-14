@@ -6,6 +6,7 @@ using System.Linq;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Game.ClientState.Conditions;
+using FFXIVClientStructs.FFXIV.Client.Game.Group;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 
 namespace LootView.Services;
@@ -42,6 +43,30 @@ public partial class LootTrackingService
             names.Add(LocalPlayerName);
 
         return names;
+    }
+
+    /// <summary>
+    /// The number of players in your alliance, or null outside one. Dalamud's party list only holds
+    /// your own light party, so the other parties are counted from the game's group manager.
+    /// </summary>
+    public unsafe int? AllianceSize()
+    {
+        var manager = GroupManager.Instance();
+        if (manager == null)
+            return null;
+
+        ref var group = ref manager->MainGroup;
+        if (!group.IsAlliance)
+            return null;
+
+        var count = (int)group.MemberCount;
+        foreach (ref var member in group.AllianceMembers)
+        {
+            if (member.EntityId is not (0 or 0xE0000000))
+                count++;
+        }
+
+        return count;
     }
 
     /// <summary>
@@ -208,7 +233,7 @@ public partial class LootTrackingService
                         boundSlots.Add(i);
                         slotTimeDirection[i] = 0;
                         lastSlotTime[i] = items[i].Time;
-                        Plugin.Log.Debug($"Roll session {roll.ItemName} matched to loot slot {i} (Time={items[i].Time:F1}, MaxTime={items[i].MaxTime:F1})");
+                        Plugin.Log.Debug($"Roll session {roll.ItemName} matched to loot slot {i} (Time={items[i].Time:F1}, MaxTime={items[i].MaxTime:F1}, Weekly={items[i].WeeklyLootItem})");
                         break;
                     }
 
@@ -231,6 +256,12 @@ public partial class LootTrackingService
 
                 SyncTimer(roll, item.Time, item.MaxTime, now);
                 changed |= SyncLocalStatus(roll, item);
+
+                if (roll.IsWeekly != item.WeeklyLootItem)
+                {
+                    roll.IsWeekly = item.WeeklyLootItem;
+                    changed = true;
+                }
             }
         }
 
@@ -304,6 +335,31 @@ public partial class LootTrackingService
         roll.PlayerRolls[me] = status.Value;
         Plugin.Log.Info($"Your status on {roll.ItemName}: {status.Value.Kind}");
         return true;
+    }
+
+    /// <summary>
+    /// The other weekly-limited items still open that you've rolled Need or Greed on. Only one weekly
+    /// item can be yours, and whichever of them resolves first in your favour takes that place, so
+    /// rolling on this one as well puts them at stake against each other.
+    /// </summary>
+    public List<RollInfo> OtherWeeklyRolls(RollInfo roll)
+    {
+        var me = LocalPlayerName;
+        lock (rollLock)
+        {
+            return activeRolls
+                .Where(r => r != roll && r.IsWeekly && !r.IsFinished && HasRolled(r, me))
+                .ToList();
+        }
+    }
+
+    private static bool HasRolled(RollInfo roll, string me)
+    {
+        if (roll.PendingChoice is RollChoice.Need or RollChoice.Greed && IsRollPending(roll))
+            return true;
+
+        var key = FindPlayerKey(roll, me);
+        return key != null && RollKind.IsRoll(roll.PlayerRolls[key].RollType);
     }
 
     /// <summary>

@@ -28,6 +28,18 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.6.2", "Weekly limits and alliance rolls",
+        [
+            new(NoteKind.Added, "In duties with a weekly loot limit, the items that count toward it carry a Weekly limit "
+                                + "tag in the roll panel. The first one you win, on Need or Greed alike, is your only one "
+                                + "until the weekly reset."),
+            new(NoteKind.Added, "If you've already rolled on another weekly item, a warning above the buttons tells you "
+                                + "which: whichever you win first is the one you keep, and the game decides that order."),
+            new(NoteKind.Improved, "In alliance raids the roll panel shows a counter, such as 7/24 decided, instead of a "
+                                   + "row for every player. Once an item is resolved only the Need and Greed rolls are "
+                                   + "listed, and everyone else is summed up in one line, with the names on hover."),
+        ]),
+
         new("1.6.1", "Currencies, commendations and a scalable window",
         [
             new(NoteKind.Added, "A currency drawer slides out beside the loot window with every currency you hold: gil, "

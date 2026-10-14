@@ -9,7 +9,7 @@ A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goat
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.6.1-D6B068)
+![Version](https://img.shields.io/badge/version-1.6.2-D6B068)
 
 ---
 
@@ -50,7 +50,8 @@ A panel appears while rolls are open, with a card for every item on the loot lis
 
 - **Time left** to roll, as a countdown and a bar that turns amber and then red as it runs out.
 - **Every result**: Need and Greed rolls with their values, passes, items you aren't allowed to roll on, and party members who never chose. Your own choice shows the moment you make it; everyone else's is revealed by the game once the item is resolved.
-- **Who is still deciding** in your party while the item is open.
+- **Who is still deciding** in your party while the item is open. In an alliance raid a counter ("7/24 decided") takes the place of the list, and once the item is resolved only the Need and Greed rolls are listed, with everyone else summed up in one line.
+- **Weekly limits**: in duties where you can only win one item a week, those items carry a *Weekly limit* tag, and a warning appears above the buttons if you've already rolled on another one. Whichever you win first is the one you keep, and the game decides that order.
 - **The winner**, crowned, with a burst of light and sparks on the card as the result comes in.
 - **Need, Greed and Pass buttons**, so you can roll without the game's loot window. Only the choices the game allows you are offered; Need is greyed out when your job can't use the item or the duty is Greed only.
 - **Item details** on hover and **Try On** on right-click, to judge an item by its stats or its look before you choose.
@@ -171,6 +172,8 @@ changing it, so the two files stay in step.
 ## Release notes
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
+
+**1.6.2** warns you about weekly loot limits in the roll panel: items that use up your one win of the week are tagged, and you're told when rolling on one puts another at stake. In alliance raids the panel shows a "7/24 decided" counter instead of a row for every player.
 
 **1.6.1** adds a currency drawer beside the loot window (every currency you hold, with caps and the weekly tomestone limit), a banner when you're commended, and a scale slider for the loot window. The Need/Greed/Pass buttons now sit above the rolls so they stay put, and locking the window from Settings works straight away.
 

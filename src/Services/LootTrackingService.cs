@@ -2190,6 +2190,12 @@ public class RollInfo
     /// <summary>Whether the item in the loot list is high quality; known once it has been matched.</summary>
     public bool IsHq { get; set; }
 
+    /// <summary>
+    /// Whether the game counts this item against your weekly reward limit: the first such item you
+    /// win, on Need or Greed alike, puts the rest out of reach until the weekly reset.
+    /// </summary>
+    public bool IsWeekly { get; set; }
+
     /// <summary>A choice sent from the roll window that the game hasn't confirmed yet.</summary>
     public RollChoice? PendingChoice { get; set; }
     public DateTime PendingSince { get; set; }

@@ -205,23 +205,37 @@ public class RollWindow : Window
         var origin = ImGui.GetCursorScreenPos();
         var width = Math.Max(ImGui.GetContentRegionAvail().X, 340f);
 
-        var sortedRolls = rollInfo.GetSortedRolls().ToList();
+        var allRolls = rollInfo.GetSortedRolls().ToList();
         var rarityColor = Theme.RarityColor(rollInfo.Rarity);
         var won = !string.IsNullOrEmpty(rollInfo.WinnerName);
         var finished = rollInfo.IsFinished;
 
+        // With 24 players a row each would run off the screen, so an alliance gets a counter instead:
+        // only Need/Greed rolls and your own row are listed, and passes are summed up in one line.
+        var allianceSize = plugin.LootTracker.AllianceSize();
+        var sortedRolls = allianceSize == null
+            ? allRolls
+            : allRolls.Where(r => Services.RollKind.IsRoll(r.RollType) || Services.LootTrackingService.SameName(r.PlayerName, localPlayerName)).ToList();
+        var others = allianceSize != null && finished ? allRolls.Except(sortedRolls).ToList() : [];
+
         // Party members who haven't chosen yet, while the item is still open.
-        var waiting = finished
+        var waiting = finished || allianceSize != null
             ? []
             : plugin.LootTracker.PartyMemberNames()
                 .Where(n => !rollInfo.PlayerRolls.Keys.Any(k => Services.LootTrackingService.SameName(k, n)))
                 .ToList();
 
-        var placeholderRow = sortedRolls.Count == 0 && waiting.Count == 0 ? 1 : 0;
-        var rowsHeight = (sortedRolls.Count + placeholderRow + (waiting.Count > 0 ? 1 : 0)) * RowHeight;
+        var placeholderRow = sortedRolls.Count == 0 && waiting.Count == 0 && others.Count == 0 ? 1 : 0;
+        var rowsHeight = (sortedRolls.Count + placeholderRow + (waiting.Count > 0 ? 1 : 0) + (others.Count > 0 ? 1 : 0)) * RowHeight;
         var actionBar = !finished && plugin.Configuration.ShowRollButtons &&
                         (Services.LootTrackingService.IsRollPending(rollInfo) || plugin.LootTracker.GetRollOptions(rollInfo).Any);
-        var cardHeight = 14f + IconSize + 8f + rowsHeight + (actionBar ? ActionBarHeight : 0) + (finished ? 0 : TimerBarHeight + 6f);
+
+        // In weekly-limited duties only one item can be yours, so rolling here puts your other rolls at stake.
+        var weekly = rollInfo.IsWeekly && !finished;
+        var atStake = weekly && actionBar ? plugin.LootTracker.OtherWeeklyRolls(rollInfo) : [];
+        var stakeRow = atStake.Count > 0 ? RowHeight : 0;
+
+        var cardHeight = 14f + IconSize + 8f + rowsHeight + stakeRow + (actionBar ? ActionBarHeight : 0) + (finished ? 0 : TimerBarHeight + 6f);
 
         var max = new Vector2(origin.X + width, origin.Y + cardHeight);
 
@@ -312,16 +326,32 @@ public class RollWindow : Window
         }
         else
         {
-            Theme.Badge($"{rollInfo.PlayerRolls.Count} decided", Theme.Crystal);
+            Theme.Badge(allianceSize is { } size
+                ? $"{Math.Min(rollInfo.PlayerRolls.Count, size)}/{size} decided"
+                : $"{rollInfo.PlayerRolls.Count} decided", Theme.Crystal);
+        }
+
+        if (weekly)
+        {
+            ImGui.SameLine(0, 6);
+            Theme.Badge("Weekly limit", Theme.Warn);
+            if (ImGui.IsItemHovered())
+                Theme.Tooltip(WeeklyLimitNote);
         }
 
         // Need / Greed / Pass sit right under the name, above the rolls: rows keep arriving
         // while you decide, and in a 24-player alliance they used to push the buttons away
         // from the cursor.
         var rowY = origin.Y + 9f + IconSize + 8f;
+        if (stakeRow > 0)
+        {
+            DrawStakeRow(dl, new Vector2(origin.X, rowY), width, atStake);
+            rowY += stakeRow;
+        }
+
         if (actionBar)
         {
-            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY, width - 24f);
+            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY, width - 24f, atStake);
             rowY += ActionBarHeight;
         }
 
@@ -337,6 +367,12 @@ public class RollWindow : Window
         {
             if (isWinner) winnerRowY = rowY - origin.Y;
             DrawRollRow(dl, new Vector2(origin.X, rowY), width, playerName, rollType, rollValue, isWinner, localPlayerName);
+            rowY += RowHeight;
+        }
+
+        if (others.Count > 0)
+        {
+            DrawOthersRow(dl, new Vector2(origin.X, rowY), width, others);
             rowY += RowHeight;
         }
 
@@ -551,11 +587,73 @@ public class RollWindow : Window
     }
 
     /// <summary>
+    /// One line for everyone in an alliance who didn't roll Need or Greed, by what they did instead,
+    /// with the names on hover.
+    /// </summary>
+    private static void DrawOthersRow(ImDrawListPtr dl, Vector2 origin, float width,
+        List<(string PlayerName, string RollType, int RollValue, bool IsWinner)> others)
+    {
+        var groups = others.GroupBy(r => r.RollType).OrderBy(g => Services.RollKind.Order(g.Key)).ToList();
+        var summary = string.Join(" · ", groups.Select(g => g.Key switch
+        {
+            Services.RollKind.Pass => $"{g.Count()} passed",
+            Services.RollKind.NoRoll => $"{g.Count()} didn't roll",
+            Services.RollKind.CantRoll => $"{g.Count()} couldn't roll",
+            _ => $"{g.Count()} {g.Key.ToLowerInvariant()}",
+        }));
+
+        var textY = origin.Y + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
+        Theme.ClipText(dl, new Vector2(origin.X + 22f, textY), width - 40f, summary, Theme.U32(Theme.TextMuted));
+
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + 12f, origin.Y));
+        ImGui.Dummy(new Vector2(width - 24f, RowHeight));
+        if (ImGui.IsItemHovered())
+            Theme.Tooltip(string.Join("\n", groups.Select(g => $"{g.Key}: {string.Join(", ", g.Select(r => r.PlayerName))}")));
+    }
+
+    private const string WeeklyLimitNote =
+        "This item counts toward your weekly reward limit. The first such item you win, on Need or Greed alike, " +
+        "uses it up: the others go to someone else until the weekly reset.";
+
+    /// <summary>
+    /// The warning above the buttons when you've already rolled on other weekly-limited items:
+    /// whichever of them you win first, you lose the rest.
+    /// </summary>
+    private static void DrawStakeRow(ImDrawListPtr dl, Vector2 origin, float width, List<Services.RollInfo> atStake)
+    {
+        var min = new Vector2(origin.X + 12f, origin.Y + 1f);
+        var max = new Vector2(origin.X + width - 12f, origin.Y + RowHeight - 2f);
+        dl.AddRectFilled(min, max, Theme.U32(Theme.Warn, 0.10f), 4f);
+
+        var textY = origin.Y + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+        {
+            dl.AddText(new Vector2(origin.X + 20f, textY + 1f), Theme.U32(Theme.Warn),
+                FontAwesomeIcon.ExclamationTriangle.ToIconString());
+        }
+
+        var names = string.Join(", ", atStake.Select(r => r.ItemName));
+        Theme.ClipText(dl, new Vector2(origin.X + 40f, textY), width - 58f,
+            $"Also rolling on {names}", Theme.U32(Theme.Warn));
+
+        ImGui.SetCursorScreenPos(min);
+        ImGui.Dummy(max - min);
+        if (ImGui.IsItemHovered())
+            Theme.Tooltip(StakeNote(atStake));
+    }
+
+    private static string StakeNote(List<Services.RollInfo> atStake)
+        => $"You've already rolled on {string.Join(", ", atStake.Select(r => r.ItemName))}. " +
+           "Only one weekly item can be yours: if you roll here too, whichever you win first is the one you keep, " +
+           "and the game decides that order, not you.";
+
+    /// <summary>
     /// Your Need, Greed and Pass buttons, a full-width bar set apart from the results above it.
     /// Choices the game won't accept from you are greyed out, and the bar gives way to a note
     /// while a click is in flight.
     /// </summary>
-    private void DrawActionBar(ImDrawListPtr dl, Services.RollInfo rollInfo, float left, float y, float width)
+    private void DrawActionBar(ImDrawListPtr dl, Services.RollInfo rollInfo, float left, float y, float width,
+        List<Services.RollInfo> atStake)
     {
         var tracker = plugin.LootTracker;
 
@@ -614,6 +712,8 @@ public class RollWindow : Window
                     var text = choice == Services.RollChoice.Pass ? $"Pass on {rollInfo.ItemName}" : $"Roll {label} on {rollInfo.ItemName}";
                     if (choice == Services.RollChoice.Need && UnlockStatusOf(rollInfo) == UnlockStatus.Unlocked)
                         text += "\nYou already have this unlocked.";
+                    if (choice != Services.RollChoice.Pass && rollInfo.IsWeekly)
+                        text += "\n\n" + (atStake.Count > 0 ? StakeNote(atStake) : WeeklyLimitNote);
                     Theme.Tooltip(text);
                 }
 
