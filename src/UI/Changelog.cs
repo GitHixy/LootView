@@ -28,6 +28,19 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.6.3", "Sharper at any UI scale",
+        [
+            new(NoteKind.Fixed, "With Dalamud's UI scale above 100%, the roll panel no longer stacks its text on top of "
+                                + "itself: the decided and winner tags, the Need/Greed/Pass buttons and the player rows "
+                                + "each keep their own space, and long names are shortened instead of running under the tags."),
+            new(NoteKind.Fixed, "Settings, statistics, the loot table, the loot window and the currency drawer now grow "
+                                + "with Dalamud's UI scale too, so spacing, buttons and columns keep up with the text."),
+            new(NoteKind.Added, "A Preview roll window button in Settings → Tracking shows the roll panel with sample items, "
+                                + "to check how it looks without a duty. Nothing in the preview is sent to the game."),
+            new(NoteKind.Improved, "Routine messages such as item lookups and every single roll are now logged at Debug level, "
+                                   + "keeping Dalamud's log quiet. The Diagnostics report still includes them."),
+        ]),
+
         new("1.6.2", "Weekly limits and alliance rolls",
         [
             new(NoteKind.Added, "In duties with a weekly loot limit, the items that count toward it carry a Weekly limit "

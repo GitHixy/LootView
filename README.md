@@ -9,7 +9,7 @@ A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goat
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-6FB8E0)
-![Version](https://img.shields.io/badge/version-1.6.2-D6B068)
+![Version](https://img.shields.io/badge/version-1.6.3-D6B068)
 
 ---
 
@@ -172,6 +172,8 @@ changing it, so the two files stay in step.
 ## Release notes
 
 The plugin shows what's new the first time you log in after an update, and you can reopen it any time from **Settings → About → What's new**.
+
+**1.6.3** fixes overlapping text in the roll panel and other windows when Dalamud's UI scale is set above 100%, adds a preview of the roll panel to the settings, and moves routine log lines to Debug.
 
 **1.6.2** warns you about weekly loot limits in the roll panel: items that use up your one win of the week are tagged, and you're told when rolling on one puts another at stake. In alliance raids the panel shows a "7/24 decided" counter instead of a row for every player.
 

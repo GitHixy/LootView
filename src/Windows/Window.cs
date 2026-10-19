@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility;
 using LootView.UI;
 
 namespace LootView.Windows;
@@ -23,6 +24,8 @@ public abstract class Window : IDisposable
     }
 
     protected ImGuiWindowFlags WindowFlags { get; set; } = ImGuiWindowFlags.None;
+
+    // Sizes are given at 100% and grow with Dalamud's global UI scale, like the text inside.
     protected Vector2? Size { get; set; } = null;
     protected Vector2? SizeConstraintMin { get; set; } = null;
     protected Vector2? SizeConstraintMax { get; set; } = null;
@@ -75,12 +78,12 @@ public abstract class Window : IDisposable
 
             if (SizeConstraintMin.HasValue && SizeConstraintMax.HasValue)
             {
-                ImGui.SetNextWindowSizeConstraints(SizeConstraintMin.Value, SizeConstraintMax.Value);
+                ImGui.SetNextWindowSizeConstraints(Scaled(SizeConstraintMin.Value), Scaled(SizeConstraintMax.Value));
             }
 
             if (Size.HasValue)
             {
-                ImGui.SetNextWindowSize(Size.Value, ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(Scaled(Size.Value), ImGuiCond.FirstUseEver);
             }
 
             if (BgAlpha.HasValue)
@@ -132,6 +135,9 @@ public abstract class Window : IDisposable
             Plugin.Log.Error(ex, "Error drawing window {WindowName}", WindowName);
         }
     }
+
+    /// <summary>A window size given at 100%, in Dalamud's global UI scale.</summary>
+    protected static Vector2 Scaled(Vector2 size) => size * ImGuiHelpers.GlobalScale;
 
     protected abstract void DrawContents();
 

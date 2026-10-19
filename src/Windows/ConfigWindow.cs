@@ -63,11 +63,11 @@ public class ConfigWindow : Window
             Theme.WindowHeader(FontAwesomeIcon.Cog, "Settings", Sections[section].Blurb);
 
             var avail = ImGui.GetContentRegionAvail();
-            const float railWidth = 158f;
+            var railWidth = Theme.Px(158f);
 
             DrawNavRail(new Vector2(railWidth, avail.Y));
 
-            ImGui.SameLine(0, 12);
+            ImGui.SameLine(0, Theme.Px(12));
 
             using var pane = Theme.Region("##ConfigPane", new Vector2(0, avail.Y));
             if (!pane) return;
@@ -83,7 +83,7 @@ public class ConfigWindow : Window
                 case 6: DrawAbout(); break;
             }
 
-            ImGui.Dummy(new Vector2(0, 8));
+            ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         }
         catch (Exception ex)
         {
@@ -103,7 +103,7 @@ public class ConfigWindow : Window
         using var child = Theme.Region("##ConfigNav", size);
         if (!child) return;
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         for (var i = 0; i < Sections.Length; i++)
         {
@@ -111,21 +111,22 @@ public class ConfigWindow : Window
             var selected = section == i;
 
             var p = ImGui.GetCursorScreenPos();
-            var w = ImGui.GetContentRegionAvail().X - 8;
-            const float h = 34f;
+            var inset = Theme.Px(4);
+            var w = ImGui.GetContentRegionAvail().X - inset * 2;
+            var h = Theme.Px(34f);
 
-            ImGui.SetCursorScreenPos(new Vector2(p.X + 4, p.Y));
+            ImGui.SetCursorScreenPos(new Vector2(p.X + inset, p.Y));
             if (ImGui.InvisibleButton($"##nav{i}", new Vector2(w, h)))
                 section = i;
 
             var hovered = ImGui.IsItemHovered();
-            var min = new Vector2(p.X + 4, p.Y);
-            var max = new Vector2(p.X + 4 + w, p.Y + h);
+            var min = new Vector2(p.X + inset, p.Y);
+            var max = new Vector2(p.X + inset + w, p.Y + h);
 
             if (selected)
             {
                 dl.AddRectFilled(min, max, Theme.U32(Theme.Gold, 0.13f), Theme.Radius);
-                dl.AddRectFilled(min, new Vector2(min.X + 2.5f, max.Y), Theme.U32(Theme.Gold, 0.95f), 1.5f);
+                dl.AddRectFilled(min, new Vector2(min.X + Theme.Px(2.5f), max.Y), Theme.U32(Theme.Gold, 0.95f), 1.5f);
             }
             else if (hovered)
             {
@@ -138,13 +139,13 @@ public class ConfigWindow : Window
             {
                 var glyph = icon.ToIconString();
                 var gs = ImGui.CalcTextSize(glyph);
-                dl.AddText(new Vector2(min.X + 15 - gs.X * 0.5f, min.Y + (h - gs.Y) * 0.5f), Theme.U32(tint), glyph);
+                dl.AddText(new Vector2(min.X + Theme.Px(15) - gs.X * 0.5f, min.Y + (h - gs.Y) * 0.5f), Theme.U32(tint), glyph);
             }
 
             var ts = ImGui.CalcTextSize(label);
-            dl.AddText(new Vector2(min.X + 30, min.Y + (h - ts.Y) * 0.5f), Theme.U32(tint), label);
+            dl.AddText(new Vector2(min.X + Theme.Px(30), min.Y + (h - ts.Y) * 0.5f), Theme.U32(tint), label);
 
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
         }
     }
 
@@ -174,7 +175,7 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Contents", FontAwesomeIcon.ListUl);
 
         var showOnlyMyLoot = config.ShowOnlyOwnLoot;
@@ -186,12 +187,12 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.Text, "Maximum items shown");
-        ImGui.SameLine(0, 6);
+        ImGui.SameLine(0, Theme.Px(6));
         Theme.HelpMarker("How many recent drops the list keeps before the oldest fall off.");
-        ImGui.SameLine(0, 14);
+        ImGui.SameLine(0, Theme.Px(14));
 
         var maxItems = config.MaxDisplayedItems;
         if (Theme.SliderInt("##MaxItems", ref maxItems, 10, 200, 210f))
@@ -200,7 +201,7 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         var showCurrencies = config.ShowCurrencyPanel;
         if (Theme.ToggleRow("Currency drawer", ref showCurrencies,
                 "A drawer that slides out beside the loot window, with every currency you hold, from gil and tomestones "
@@ -212,11 +213,11 @@ public class ConfigWindow : Window
 
         if (config.ShowCurrencyPanel)
         {
-            ImGui.Dummy(new Vector2(0, 4));
-            ImGui.Indent(10);
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            ImGui.Indent(Theme.Px(10));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.Text, "Slides out on the");
-            ImGui.SameLine(0, 14);
+            ImGui.SameLine(0, Theme.Px(14));
 
             var side = config.CurrencyPanelOnLeft ? 0 : 1;
             if (Theme.SegmentedControl("##CurrencySide", ref side, "Left", "Right"))
@@ -224,10 +225,10 @@ public class ConfigWindow : Window
                 config.CurrencyPanelOnLeft = side == 0;
                 configService.Save();
             }
-            ImGui.Unindent(10);
+            ImGui.Unindent(Theme.Px(10));
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Integration", FontAwesomeIcon.PlugCircleBolt);
 
         var showDtrBar = config.ShowDtrBar;
@@ -239,7 +240,7 @@ public class ConfigWindow : Window
             plugin.UpdateDtrBarVisibility(showDtrBar);
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Market prices", FontAwesomeIcon.Coins);
 
         var enablePrices = config.EnableMarketPrices;
@@ -252,7 +253,7 @@ public class ConfigWindow : Window
 
         if (config.EnableMarketPrices)
         {
-            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
             var world = plugin.MarketPriceService.WorldName;
             Theme.Callout(FontAwesomeIcon.CloudDownloadAlt, "Powered by Universalis",
                 (world is null
@@ -261,14 +262,14 @@ public class ConfigWindow : Window
                 "They are crowd-sourced, cached for 30 minutes, and exclude the 5% market board tax.",
                 Theme.Crystal);
 
-            ImGui.Dummy(new Vector2(0, 8));
-            if (Theme.GhostButton("Refresh prices", new Vector2(150, 30)))
+            ImGui.Dummy(new Vector2(0, Theme.Px(8)));
+            if (Theme.GhostButton("Refresh prices", Theme.Px(new Vector2(150, 30))))
             {
                 plugin.MarketPriceService.ClearCache();
             }
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.Terminal, "Chat commands",
             "/lv toggles the overlay  ·  /lv config opens this window", Theme.Crystal);
     }
@@ -287,7 +288,7 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Need / Greed", FontAwesomeIcon.Dice);
 
         var enableRollTracking = config.EnableRollTracking;
@@ -305,14 +306,14 @@ public class ConfigWindow : Window
 
         if (config.EnableRollTracking)
         {
-            ImGui.Dummy(new Vector2(0, 4));
-            ImGui.Indent(10);
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            ImGui.Indent(Theme.Px(10));
 
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.Text, "Keep results for");
-            ImGui.SameLine(0, 6);
+            ImGui.SameLine(0, Theme.Px(6));
             Theme.HelpMarker("How many seconds an awarded item stays in the roll window before it disappears.");
-            ImGui.SameLine(0, 14);
+            ImGui.SameLine(0, Theme.Px(14));
 
             var resultSeconds = config.RollResultSeconds;
             if (Theme.SliderInt("##RollResultSeconds", ref resultSeconds, 5, 120, 210f))
@@ -321,11 +322,18 @@ public class ConfigWindow : Window
                 configService.Save();
             }
 
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextMuted, "seconds");
 
-            ImGui.Dummy(new Vector2(0, 4));
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            if (Theme.GhostButton("Preview roll window", Theme.Px(new Vector2(170, 28))))
+                plugin.RollWindow.ShowPreview();
+            ImGui.SameLine(0, Theme.Px(10));
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextFaint, "Sample items to check the layout. Nothing is sent to the game.");
+
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
             var showRollButtons = config.ShowRollButtons;
             if (Theme.ToggleRow("Need / Greed / Pass buttons", ref showRollButtons,
                     "Roll straight from the roll window. Only the choices the game allows you on each item are offered, and each click sends one roll, exactly like the game's own window."))
@@ -341,7 +349,7 @@ public class ConfigWindow : Window
 
             if (config.ShowRollButtons)
             {
-                ImGui.Dummy(new Vector2(0, 4));
+                ImGui.Dummy(new Vector2(0, Theme.Px(4)));
                 var hideNative = config.HideNativeRollWindow;
                 if (Theme.ToggleRow("Hide the game's Need/Greed window", ref hideNative,
                         "Keeps the game's own loot window out of the way, so all your rolls happen in LootView. "
@@ -353,16 +361,16 @@ public class ConfigWindow : Window
                 }
             }
 
-            ImGui.Unindent(10);
+            ImGui.Unindent(Theme.Px(10));
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.Ban, "Blacklist",
             "Right-click any item in the loot list to stop tracking it. Manage the full list from Statistics → Blacklist.",
             Theme.Warn);
 
-        ImGui.Dummy(new Vector2(0, 10));
-        if (Theme.GhostButton("Open blacklist", new Vector2(160, 30)))
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
+        if (Theme.GhostButton("Open blacklist", Theme.Px(new Vector2(160, 30))))
         {
             plugin.StatisticsWindow.IsOpen = true;
         }
@@ -383,13 +391,13 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.Text, "Loot window scale");
-        ImGui.SameLine(0, 6);
+        ImGui.SameLine(0, Theme.Px(6));
         Theme.HelpMarker("Shrinks or enlarges everything in the loot window and the currency drawer: text, rows, icons and buttons. "
                          + "The window resizes along with it.");
-        ImGui.SameLine(0, 14);
+        ImGui.SameLine(0, Theme.Px(14));
 
         var scalePercent = (int)MathF.Round(config.LootWindowScale * 100f);
         if (Theme.SliderInt("##LootWindowScale", ref scalePercent,
@@ -399,26 +407,26 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.SameLine(0, 8);
+        ImGui.SameLine(0, Theme.Px(8));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, "%");
 
         if (Math.Abs(config.LootWindowScale - 1f) > 0.001f)
         {
-            ImGui.SameLine(0, 10);
-            if (Theme.GhostButton("Reset", new Vector2(60, 0)))
+            ImGui.SameLine(0, Theme.Px(10));
+            if (Theme.GhostButton("Reset", Theme.Px(new Vector2(60, 0))))
             {
                 config.LootWindowScale = 1f;
                 configService.Save();
             }
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Transparency", FontAwesomeIcon.Adjust);
 
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.Text, "Background opacity");
-        ImGui.SameLine(0, 14);
+        ImGui.SameLine(0, Theme.Px(14));
 
         var bgAlpha = config.BackgroundAlpha;
         if (Theme.Slider("##BgAlpha", ref bgAlpha, 0.0f, 1.0f, "%.2f", 210f))
@@ -427,17 +435,17 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         ImGui.TextColored(Theme.TextFaint, "Preview");
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Theme.Px(2)));
         DrawOpacityPreview(bgAlpha);
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.Palette, "Rarity colours",
             "Item names use the game's own rarity ramp: white, green, blue, purple and pink.",
             Theme.Crystal);
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         DrawRarityLegend();
     }
 
@@ -445,12 +453,12 @@ public class ConfigWindow : Window
     {
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
-        var w = Math.Min(ImGui.GetContentRegionAvail().X, 300f);
-        const float h = 46f;
+        var w = Math.Min(ImGui.GetContentRegionAvail().X, Theme.Px(300f));
+        var h = Theme.Px(46f);
         var max = new Vector2(p.X + w, p.Y + h);
 
         // Checkerboard so the alpha is actually legible.
-        const float cell = 8f;
+        var cell = Theme.Px(8f);
         for (var y = 0f; y < h; y += cell)
         {
             for (var x = 0f; x < w; x += cell)
@@ -465,7 +473,7 @@ public class ConfigWindow : Window
 
         dl.AddRectFilled(p, max, Theme.U32(Theme.Ink, alpha), Theme.Radius);
         dl.AddRect(p, max, Theme.U32(Theme.Line), Theme.Radius, ImDrawFlags.None, 1f);
-        dl.AddText(new Vector2(p.X + 12, p.Y + h * 0.5f - ImGui.GetTextLineHeight() * 0.5f),
+        dl.AddText(new Vector2(p.X + Theme.Px(12), p.Y + h * 0.5f - ImGui.GetTextLineHeight() * 0.5f),
             Theme.U32(Theme.Text), "Sample loot row");
 
         ImGui.Dummy(new Vector2(w, h));
@@ -477,9 +485,9 @@ public class ConfigWindow : Window
         foreach (var r in rarities)
         {
             Theme.RarityGem(r, 10f);
-            ImGui.SameLine(0, 5);
+            ImGui.SameLine(0, Theme.Px(5));
             ImGui.TextColored(Theme.RarityColor(r), Theme.RarityName(r));
-            ImGui.SameLine(0, 14);
+            ImGui.SameLine(0, Theme.Px(14));
         }
         ImGui.NewLine();
     }
@@ -507,7 +515,7 @@ public class ConfigWindow : Window
             configService.Save();
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Drop flourish", FontAwesomeIcon.Magic);
 
         var enableParticles = config.EnableParticleEffects;
@@ -520,14 +528,14 @@ public class ConfigWindow : Window
 
         if (config.EnableParticleEffects)
         {
-            ImGui.Dummy(new Vector2(0, 6));
-            ImGui.Indent(10);
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
+            ImGui.Indent(Theme.Px(10));
 
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.Text, "Intensity");
-            ImGui.SameLine(0, 6);
+            ImGui.SameLine(0, Theme.Px(6));
             Theme.HelpMarker("Scales how many particles each drop spawns. 0 is minimal, 2 is maximum.");
-            ImGui.SameLine(0, 14);
+            ImGui.SameLine(0, Theme.Px(14));
 
             var particleIntensity = config.ParticleIntensity;
             if (Theme.Slider("##ParticleIntensity", ref particleIntensity, 0.0f, 2.0f, "%.1f", 210f))
@@ -536,14 +544,14 @@ public class ConfigWindow : Window
                 configService.Save();
             }
 
-            ImGui.Dummy(new Vector2(0, 4));
-            Theme.Meter(config.ParticleIntensity / 2f, 210f, 6f,
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            Theme.Meter(config.ParticleIntensity / 2f, Theme.Px(210f), 6f,
                 config.ParticleIntensity > 1.4f ? Theme.Warn : Theme.Gold);
 
-            ImGui.Unindent(10);
+            ImGui.Unindent(Theme.Px(10));
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Commendations", FontAwesomeIcon.Medal);
 
         var showCommendationBanner = config.ShowCommendationBanner;
@@ -556,12 +564,12 @@ public class ConfigWindow : Window
 
         if (config.ShowCommendationBanner)
         {
-            ImGui.Dummy(new Vector2(0, 4));
-            ImGui.Indent(10);
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            ImGui.Indent(Theme.Px(10));
 
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.Text, "Banner size");
-            ImGui.SameLine(0, 14);
+            ImGui.SameLine(0, Theme.Px(14));
 
             var bannerPercent = (int)MathF.Round(config.CommendationBannerScale * 100f);
             if (Theme.SliderInt("##CommendationBannerScale", ref bannerPercent,
@@ -571,21 +579,21 @@ public class ConfigWindow : Window
                 configService.Save();
             }
 
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextMuted, "%");
 
-            ImGui.Dummy(new Vector2(0, 4));
-            if (Theme.GhostButton("Preview", new Vector2(110, 28)))
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            if (Theme.GhostButton("Preview", Theme.Px(new Vector2(110, 28))))
                 plugin.CommendationBanner.Preview();
-            ImGui.SameLine(0, 10);
+            ImGui.SameLine(0, Theme.Px(10));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextFaint, "Click again while it's up to see the counter");
 
-            ImGui.Unindent(10);
+            ImGui.Unindent(Theme.Px(10));
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.Feather, "Performance",
             "Effects are drawn entirely in the overlay and never touch the game's renderer. Lower the intensity if your frame time is tight.",
             Theme.Crystal);
@@ -608,7 +616,7 @@ public class ConfigWindow : Window
 
         if (config.EnableHistoryTracking)
         {
-            ImGui.Indent(10);
+            ImGui.Indent(Theme.Px(10));
 
             var autoSave = config.EnableHistoryAutoSave;
             if (Theme.ToggleRow("Auto-save every 5 minutes", ref autoSave,
@@ -626,24 +634,24 @@ public class ConfigWindow : Window
                 configService.Save();
             }
 
-            ImGui.Unindent(10);
+            ImGui.Unindent(Theme.Px(10));
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.SectionHeader("Collection", FontAwesomeIcon.ChartPie);
 
-        var cardWidth = Math.Min((ImGui.GetContentRegionAvail().X - 10) / 2f, 220f);
+        var cardWidth = Math.Min((ImGui.GetContentRegionAvail().X - Theme.Px(10)) / 2f, Theme.Px(220f));
         Theme.StatCard(FontAwesomeIcon.Gem, "Items tracked", history.TotalItemsObtained.ToString("N0"), Theme.Gold, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.CalendarAlt, "Days recorded", history.DailyStatistics.Count.ToString("N0"), Theme.Crystal, cardWidth);
 
-        ImGui.Dummy(new Vector2(0, 12));
-        if (Theme.PrimaryButton("Open statistics & history", new Vector2(220, 32)))
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
+        if (Theme.PrimaryButton("Open statistics & history", Theme.Px(new Vector2(220, 32))))
         {
             plugin.StatisticsWindow.IsOpen = true;
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.ShieldAlt, "Your data stays local",
             "History lives in your Dalamud config folder and is never uploaded. Export it from Statistics → Export.",
             Theme.Good);
@@ -657,7 +665,7 @@ public class ConfigWindow : Window
 
         Theme.SectionHeader("Detection", FontAwesomeIcon.Language);
 
-        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, 520f));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, Theme.Px(520f)));
         ImGui.TextColored(Theme.TextMuted, plugin.LootTracker.UsesLogMessages
             ? $"Game language: {Plugin.ClientState.ClientLanguage}. Loot is read from the game's log messages, which work the same in every language."
             : $"Game language: {Plugin.ClientState.ClientLanguage}. Loot is read with the old English chat reader.");
@@ -666,7 +674,7 @@ public class ConfigWindow : Window
         if (!isEnglish)
             return;
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         var legacy = config.UseLegacyChatReader;
         if (Theme.ToggleRow("Use the old English chat reader", ref legacy,
                 "Only if drops or rolls go missing: reads loot from the English chat text, the way LootView did "
@@ -689,36 +697,36 @@ public class ConfigWindow : Window
             "then paste the report into the issue.",
             Theme.Warn);
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
         Theme.Callout(FontAwesomeIcon.Lightbulb, "Have an idea?",
             "Issues are also the place for feature requests. Press Suggest a feature and describe what you'd " +
             "like LootView to do and how it would help you. No log needed.\n" +
             "For quick questions, or to talk ideas through first, join the LootView Discord.",
             Theme.Crystal);
 
-        ImGui.Dummy(new Vector2(0, 8));
-        if (Theme.PrimaryButton("Report a bug", new Vector2(140, 32)))
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
+        if (Theme.PrimaryButton("Report a bug", Theme.Px(new Vector2(140, 32))))
             OpenUrl(NewIssueUrl("bug", "[Bug] ",
                 "**What happened?**\n\n\n**What did you expect?**\n\n\n**Steps to reproduce**\n1. \n\n" +
                 "**Diagnostics report**\n<!-- Settings → Diagnostics → Copy report, then paste here -->\n"));
 
-        ImGui.SameLine(0, 8);
-        if (Theme.GhostButton("Suggest a feature", new Vector2(150, 32), Theme.Crystal))
+        ImGui.SameLine(0, Theme.Px(8));
+        if (Theme.GhostButton("Suggest a feature", Theme.Px(new Vector2(150, 32)), Theme.Crystal))
             OpenUrl(NewIssueUrl("enhancement", "[Feature] ",
                 "**What would you like LootView to do?**\n\n\n**How would it help you?**\n\n"));
 
-        ImGui.SameLine(0, 8);
-        if (Theme.GhostButton("Open issues", new Vector2(120, 32)))
+        ImGui.SameLine(0, Theme.Px(8));
+        if (Theme.GhostButton("Open issues", Theme.Px(new Vector2(120, 32))))
             OpenUrl($"{RepoUrl}/issues");
 
-        ImGui.SameLine(0, 8);
-        if (Theme.GhostButton("Discord", new Vector2(100, 32), Theme.DiscordBlurple))
+        ImGui.SameLine(0, Theme.Px(8));
+        if (Theme.GhostButton("Discord", Theme.Px(new Vector2(100, 32)), Theme.DiscordBlurple))
             OpenUrl(Plugin.DiscordUrl);
 
-        ImGui.Dummy(new Vector2(0, 12));
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
         DrawDetection();
 
-        ImGui.Dummy(new Vector2(0, 12));
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
         Theme.SectionHeader("Log", FontAwesomeIcon.Terminal);
 
         RefreshLogView();
@@ -726,14 +734,14 @@ public class ConfigWindow : Window
         if (Theme.SegmentedControl("##LogLevel", ref logLevelFilter, "All", "Info", "Warnings", "Errors"))
             RefreshLogView();
 
-        ImGui.SameLine(0, 10);
-        ImGui.SetNextItemWidth(Math.Max(ImGui.GetContentRegionAvail().X, 120f));
+        ImGui.SameLine(0, Theme.Px(10));
+        ImGui.SetNextItemWidth(Math.Max(ImGui.GetContentRegionAvail().X, Theme.Px(120f)));
         if (ImGui.InputTextWithHint("##LogSearch", "Filter log lines", ref logSearch, 100))
             RefreshLogView();
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         var copyLabel = selectedLogLines.Count > 0 ? $"Copy report ({selectedLogLines.Count})" : "Copy report";
-        if (Theme.PrimaryButton(copyLabel, new Vector2(150, 30)))
+        if (Theme.PrimaryButton(copyLabel, Theme.Px(new Vector2(150, 30))))
         {
             ImGui.SetClipboardText(BuildReport());
         }
@@ -742,35 +750,35 @@ public class ConfigWindow : Window
                 ? "Copies your setup and the selected lines, ready to paste into an issue."
                 : $"Copies your setup and the last {ReportLineLimit} lines shown, ready to paste into an issue.");
 
-        ImGui.SameLine(0, 8);
-        if (Theme.GhostButton("Copy lines only", new Vector2(130, 30)))
+        ImGui.SameLine(0, Theme.Px(8));
+        if (Theme.GhostButton("Copy lines only", Theme.Px(new Vector2(130, 30))))
         {
             ImGui.SetClipboardText(string.Join("\n", ReportLines().Select(e => e.Format())));
         }
 
         if (selectedLogLines.Count > 0)
         {
-            ImGui.SameLine(0, 8);
-            if (Theme.GhostButton("Deselect", new Vector2(90, 30)))
+            ImGui.SameLine(0, Theme.Px(8));
+            if (Theme.GhostButton("Deselect", Theme.Px(new Vector2(90, 30))))
                 selectedLogLines.Clear();
         }
 
-        ImGui.SameLine(0, 8);
-        if (Theme.DangerButton("Clear", new Vector2(70, 30)))
+        ImGui.SameLine(0, Theme.Px(8));
+        if (Theme.DangerButton("Clear", Theme.Px(new Vector2(70, 30))))
         {
             Plugin.Log.Clear();
             selectedLogLines.Clear();
             RefreshLogView();
         }
 
-        ImGui.SameLine(0, 12);
+        ImGui.SameLine(0, Theme.Px(12));
         ImGui.AlignTextToFramePadding();
         ImGui.Checkbox("Auto-scroll", ref logAutoScroll);
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
         DrawLogLines();
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
         Theme.Callout(FontAwesomeIcon.UserSecret, "Check before you share",
             "The log can contain character names from your party. Feel free to remove anything you'd rather keep private " +
             "before posting. It only lives in memory and is cleared when the game closes.",
@@ -779,7 +787,7 @@ public class ConfigWindow : Window
 
     private void DrawLogLines()
     {
-        var height = Math.Max(ImGui.GetContentRegionAvail().Y - 70f, 240f);
+        var height = Math.Max(ImGui.GetContentRegionAvail().Y - Theme.Px(70f), Theme.Px(240f));
         using var card = Theme.Card("##LogCard", new Vector2(0, height));
         if (!card) return;
 
@@ -887,20 +895,20 @@ public class ConfigWindow : Window
 
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, $"Version {Changelog.CurrentVersion}  ·  by GitHixy");
-        ImGui.SameLine(0, 12);
-        if (Theme.GhostButton("What's new", new Vector2(120, 0), Theme.Gold))
+        ImGui.SameLine(0, Theme.Px(12));
+        if (Theme.GhostButton("What's new", Theme.Px(new Vector2(120, 0)), Theme.Gold))
         {
             plugin.ChangelogWindow.ShowAll();
         }
 
-        ImGui.Dummy(new Vector2(0, 6));
-        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, 420f));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Math.Min(ImGui.GetContentRegionAvail().X, Theme.Px(420f)));
         ImGui.TextColored(Theme.Text,
             "A live loot tracker for Final Fantasy XIV: every drop you and your party earn, " +
             "with duty statistics, roll results and searchable history.");
         ImGui.PopTextWrapPos();
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         Theme.SectionHeader("Support", FontAwesomeIcon.Heart);
 
         using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(1.0f, 0.26f, 0.30f, 0.85f))
@@ -908,23 +916,23 @@ public class ConfigWindow : Window
                    .Push(ImGuiCol.ButtonActive, new Vector4(0.85f, 0.20f, 0.24f, 1.0f))
                    .Push(ImGuiCol.Text, Theme.Text))
         {
-            if (ImGui.Button("Support me on Patreon", new Vector2(230, 34)))
+            if (ImGui.Button("Support me on Patreon", Theme.Px(new Vector2(230, 34))))
                 OpenUrl("https://www.patreon.com/GitHixy");
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Join the Discord", new Vector2(150, 34), Theme.DiscordBlurple))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("Join the Discord", Theme.Px(new Vector2(150, 34)), Theme.DiscordBlurple))
             OpenUrl(Plugin.DiscordUrl);
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("GitHub", new Vector2(110, 34)))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("GitHub", Theme.Px(new Vector2(110, 34))))
             OpenUrl(RepoUrl);
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Report a problem", new Vector2(150, 34)))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("Report a problem", Theme.Px(new Vector2(150, 34))))
             section = Array.FindIndex(Sections, s => s.Label == "Diagnostics");
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         Theme.SectionHeader("Shortcuts", FontAwesomeIcon.Keyboard);
 
         ShortcutRow("/lv", "Toggle the loot overlay");
@@ -937,16 +945,18 @@ public class ConfigWindow : Window
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
         var ts = ImGui.CalcTextSize(command);
+        var pad = Theme.Px(new Vector2(7, 2.5f));
+        var keyMax = p + ts + pad * 2;
 
-        dl.AddRectFilled(p, new Vector2(p.X + ts.X + 14, p.Y + ts.Y + 5), Theme.U32(Theme.Panel, 0.95f), 4f);
-        dl.AddRect(p, new Vector2(p.X + ts.X + 14, p.Y + ts.Y + 5), Theme.U32(Theme.Line), 4f, ImDrawFlags.None, 1f);
-        dl.AddText(new Vector2(p.X + 7, p.Y + 2.5f), Theme.U32(Theme.GoldBright), command);
+        dl.AddRectFilled(p, keyMax, Theme.U32(Theme.Panel, 0.95f), 4f);
+        dl.AddRect(p, keyMax, Theme.U32(Theme.Line), 4f, ImDrawFlags.None, 1f);
+        dl.AddText(p + pad, Theme.U32(Theme.GoldBright), command);
 
-        ImGui.Dummy(new Vector2(Math.Max(ts.X + 14, 130f), ts.Y + 5));
-        ImGui.SameLine(0, 12);
+        ImGui.Dummy(new Vector2(Math.Max(keyMax.X - p.X, Theme.Px(130f)), keyMax.Y - p.Y));
+        ImGui.SameLine(0, Theme.Px(12));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, description);
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Theme.Px(2)));
     }
 
     private static void OpenUrl(string url)

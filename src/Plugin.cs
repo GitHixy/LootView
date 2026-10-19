@@ -488,7 +488,7 @@ public sealed class Plugin : IDalamudPlugin
                 // Show the entry
                 dtrEntry.Shown = Configuration.ShowDtrBar;
                 
-                Log.Info("DTR bar entry initialized");
+                Log.Debug("DTR bar entry initialized");
             }
         }
         catch (Exception ex)

@@ -59,9 +59,9 @@ public static class ItemTooltip
         var details = Get(itemId, isHq);
         var rarityColor = Theme.RarityColor(details?.Rarity ?? 1);
 
-        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(13, 11))
+        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Theme.Px(new Vector2(13, 11)))
             .Push(ImGuiStyleVar.WindowRounding, Theme.Radius)
-            .Push(ImGuiStyleVar.ItemSpacing, new Vector2(8, 4));
+            .Push(ImGuiStyleVar.ItemSpacing, Theme.Px(new Vector2(8, 4)));
         using var c = ImRaii.PushColor(ImGuiCol.PopupBg, new Vector4(0.055f, 0.078f, 0.122f, 0.98f))
             .Push(ImGuiCol.Border, Theme.Alpha(rarityColor, 0.55f));
 
@@ -79,7 +79,7 @@ public static class ItemTooltip
 
             if (ItemUnlocks.Describe(unlock) is { } seal)
             {
-                ImGui.Dummy(new Vector2(0, 2));
+                ImGui.Dummy(new Vector2(0, Theme.Px(2)));
                 Theme.IconText(seal.Icon, seal.Text, seal.Color);
             }
             DrawGear(details);
@@ -93,7 +93,7 @@ public static class ItemTooltip
 
             if (details.VendorPrice > 0)
             {
-                ImGui.Dummy(new Vector2(0, 2));
+                ImGui.Dummy(new Vector2(0, Theme.Px(2)));
                 Theme.IconText(FontAwesomeIcon.Coins, $"Sells to vendors for {details.VendorPrice:N0} gil", Theme.TextFaint);
             }
         }
@@ -106,7 +106,7 @@ public static class ItemTooltip
 
         if (hint != null)
         {
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
             using var font = new Theme.FontScale(0.9f);
             ImGui.TextColored(Theme.TextFaint, hint);
         }
@@ -142,9 +142,9 @@ public static class ItemTooltip
     public static void Row(FontAwesomeIcon icon, string label, string value, Vector4? valueColor = null)
     {
         Theme.Icon(icon, Theme.TextFaint);
-        ImGui.SameLine(0, 8);
+        ImGui.SameLine(0, Theme.Px(8));
         ImGui.TextColored(Theme.TextMuted, label);
-        ImGui.SameLine(115);
+        ImGui.SameLine(Theme.Px(115));
         ImGui.TextColored(valueColor ?? Theme.Text, value);
     }
 
@@ -159,8 +159,8 @@ public static class ItemTooltip
                     .GetWrapOrDefault();
                 if (tex != null)
                 {
-                    ImGui.Image(tex.Handle, new Vector2(40, 40));
-                    ImGui.SameLine(0, 10);
+                    ImGui.Image(tex.Handle, Theme.Px(new Vector2(40, 40)));
+                    ImGui.SameLine(0, Theme.Px(10));
                 }
             }
             catch { /* Ignore icon loading errors */ }
@@ -173,11 +173,11 @@ public static class ItemTooltip
         }
 
         Theme.RarityGem(d.Rarity, 9f);
-        ImGui.SameLine(0, 5);
+        ImGui.SameLine(0, Theme.Px(5));
         ImGui.TextColored(Theme.Alpha(rarityColor, 0.8f), d.Category.Length > 0 ? d.Category : Theme.RarityName(d.Rarity));
         if (isHq)
         {
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             Theme.Badge("HQ", Theme.Warn);
         }
         ImGui.EndGroup();
@@ -204,12 +204,12 @@ public static class ItemTooltip
 
         if (d.MainStats.Count > 0)
         {
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
             using var table = ImRaii.Table("##mainstats", d.MainStats.Count, ImGuiTableFlags.SizingFixedSame);
             if (table)
             {
                 foreach (var _ in d.MainStats)
-                    ImGui.TableSetupColumn(string.Empty, ImGuiTableColumnFlags.WidthFixed, 96f);
+                    ImGui.TableSetupColumn(string.Empty, ImGuiTableColumnFlags.WidthFixed, Theme.Px(96f));
 
                 ImGui.TableNextRow();
                 foreach (var (label, _) in d.MainStats)
@@ -231,7 +231,7 @@ public static class ItemTooltip
 
         if (d.Bonuses.Count > 0)
         {
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
             ImGui.TextColored(Theme.Gold, "Bonuses");
 
             // Two bonuses per line, like the game's own tooltip.
@@ -239,17 +239,17 @@ public static class ItemTooltip
             {
                 var (label, value) = d.Bonuses[i];
                 if (i % 2 == 1)
-                    ImGui.SameLine(ImGui.GetCursorStartPos().X + 170f);
+                    ImGui.SameLine(ImGui.GetCursorStartPos().X + Theme.Px(170f));
 
                 ImGui.TextColored(Theme.TextMuted, label);
-                ImGui.SameLine(0, 5);
+                ImGui.SameLine(0, Theme.Px(5));
                 ImGui.TextColored(Theme.Good, $"+{value}");
             }
         }
 
         if (d.MateriaSlots > 0)
         {
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
             DrawMateriaSlots(d.MateriaSlots, d.AdvancedMelding);
         }
     }
@@ -260,15 +260,18 @@ public static class ItemTooltip
         var p = ImGui.GetCursorScreenPos();
         var h = ImGui.GetTextLineHeight();
 
+        var step = Theme.Px(15f);
+        var radius = Theme.Px(5f);
+
         for (var i = 0; i < slots; i++)
         {
-            var center = new Vector2(p.X + 6f + i * 15f, p.Y + h * 0.5f);
-            dl.AddCircleFilled(center, 5f, Theme.U32(Theme.Crystal, 0.25f), 16);
-            dl.AddCircle(center, 5f, Theme.U32(Theme.CrystalBright, 0.8f), 16, 1.2f);
+            var center = new Vector2(p.X + Theme.Px(6f) + i * step, p.Y + h * 0.5f);
+            dl.AddCircleFilled(center, radius, Theme.U32(Theme.Crystal, 0.25f), 16);
+            dl.AddCircle(center, radius, Theme.U32(Theme.CrystalBright, 0.8f), 16, 1.2f);
         }
 
-        ImGui.Dummy(new Vector2(slots * 15f, h));
-        ImGui.SameLine(0, 6);
+        ImGui.Dummy(new Vector2(slots * step, h));
+        ImGui.SameLine(0, Theme.Px(6));
         ImGui.TextColored(Theme.TextMuted, advanced ? $"{slots} materia slots · overmelding allowed" : $"{slots} materia slots");
     }
 
@@ -277,11 +280,11 @@ public static class ItemTooltip
         if (d.Traits.Count == 0)
             return;
 
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Theme.Px(2)));
         for (var i = 0; i < d.Traits.Count; i++)
         {
             if (i > 0)
-                ImGui.SameLine(0, 5);
+                ImGui.SameLine(0, Theme.Px(5));
 
             var trait = d.Traits[i];
             var color = trait switch
@@ -292,7 +295,7 @@ public static class ItemTooltip
             };
 
             // Wrap before a badge that would run off the tooltip.
-            if (i > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(trait).X + 16f > ImGui.GetFontSize() * 22f)
+            if (i > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(trait).X + Theme.Px(16f) > ImGui.GetFontSize() * 22f)
                 ImGui.NewLine();
 
             Theme.Badge(trait, color);

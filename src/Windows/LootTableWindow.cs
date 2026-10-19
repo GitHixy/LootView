@@ -102,7 +102,7 @@ public class LootTableWindow : Window
         Theme.WindowHeader(FontAwesomeIcon.Table, zoneName, subtitle, () =>
         {
             var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
-            ImGui.SetCursorPosX(right - 30f);
+            ImGui.SetCursorPosX(right - Theme.Px(30f));
             if (Theme.IconButton("##RefreshLootTable", FontAwesomeIcon.Sync, "Reload the table for the zone you're in", Theme.Crystal))
             {
                 LoadCurrentZone();
@@ -113,12 +113,12 @@ public class LootTableWindow : Window
     private void DrawLoadingState()
     {
         var avail = ImGui.GetContentRegionAvail();
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - 80f) * 0.4f, 10f));
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - 26f) * 0.5f, 0));
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - Theme.Px(80f)) * 0.4f, Theme.Px(10f)));
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - Theme.Px(26f)) * 0.5f, 0));
 
         Theme.Spinner();
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.CenteredText("Reading the loot table...", Theme.Text);
         Theme.CenteredText("Fetching drop data for this instance", Theme.TextFaint);
     }
@@ -130,10 +130,10 @@ public class LootTableWindow : Window
             "No loot table loaded",
             "Enter a dungeon, trial or raid, then load the current zone.");
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         var w = ImGui.GetContentRegionAvail().X;
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((w - 200f) * 0.5f, 0));
-        if (Theme.PrimaryButton("Load current zone", new Vector2(200, 34)))
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((w - Theme.Px(200f)) * 0.5f, 0));
+        if (Theme.PrimaryButton("Load current zone", Theme.Px(new Vector2(200, 34))))
         {
             LoadCurrentZone();
         }
@@ -141,12 +141,12 @@ public class LootTableWindow : Window
 
     private void DrawErrorState()
     {
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.Callout(FontAwesomeIcon.ExclamationTriangle, "Couldn't load this loot table",
             currentLootTable.ErrorMessage, Theme.Bad);
 
-        ImGui.Dummy(new Vector2(0, 12));
-        if (Theme.GhostButton("Try again", new Vector2(140, 32)))
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
+        if (Theme.GhostButton("Try again", Theme.Px(new Vector2(140, 32))))
         {
             LoadCurrentZone();
         }
@@ -175,7 +175,7 @@ public class LootTableWindow : Window
 
         var visible = items.ToList();
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         if (visible.Count == 0)
         {
@@ -184,7 +184,7 @@ public class LootTableWindow : Window
             return;
         }
 
-        var availableHeight = ImGui.GetContentRegionAvail().Y - 4;
+        var availableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(4);
 
         using var table = ImRaii.Table("LootTableTable", 6,
             ImGuiTableFlags.RowBg |
@@ -197,18 +197,18 @@ public class LootTableWindow : Window
 
         if (!table) return;
 
-        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort | ImGuiTableColumnFlags.NoResize, 36);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort | ImGuiTableColumnFlags.NoResize, Theme.Px(36));
         ImGui.TableSetupColumn("Item Name", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, 44);
-        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, 130);
-        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 190);
-        ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 90);
+        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, Theme.Px(44));
+        ImGui.TableSetupColumn("Category", ImGuiTableColumnFlags.WidthFixed, Theme.Px(130));
+        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, Theme.Px(190));
+        ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, Theme.Px(90));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
         foreach (var item in visible)
         {
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 34f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(34f));
 
             var itemColor = Theme.RarityColor(item.Rarity);
 
@@ -223,7 +223,7 @@ public class LootTableWindow : Window
                         .GetWrapOrDefault();
                     if (iconTexture != null)
                     {
-                        ImGui.Image(iconTexture.Handle, new Vector2(28, 28));
+                        ImGui.Image(iconTexture.Handle, Theme.Px(new Vector2(28, 28)));
                         ItemUnlocks.DrawIconSeal(ImGui.GetWindowDrawList(), ImGui.GetItemRectMax(), UnlockStatusOf(item), 12f);
                         DrawItemInteractions(item, drawMenu: false);
                     }
@@ -235,7 +235,7 @@ public class LootTableWindow : Window
             ImGui.TableSetColumnIndex(1);
             ImGui.AlignTextToFramePadding();
             Theme.RarityGem(item.Rarity, 9f);
-            ImGui.SameLine(0, 7);
+            ImGui.SameLine(0, Theme.Px(7));
             ImGui.TextColored(itemColor, item.ItemName);
             if (item.ItemId > 0)
                 DrawItemInteractions(item, drawMenu: true);
@@ -309,22 +309,22 @@ public class LootTableWindow : Window
     {
         ImGui.AlignTextToFramePadding();
         Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
-        ImGui.SameLine(0, 8);
-        ImGui.SetNextItemWidth(240);
+        ImGui.SameLine(0, Theme.Px(8));
+        ImGui.SetNextItemWidth(Theme.Px(240));
         ImGui.InputTextWithHint("##LootTableFilter", "Filter by name, source or category", ref filter, 120);
 
-        ImGui.SameLine(0, 12);
+        ImGui.SameLine(0, Theme.Px(12));
         Theme.SegmentedControl("##RarityFilter", ref rarityFilter, "All", "Common", "Uncommon", "Rare", "Relic");
 
         ImGui.SameLine();
         var count = currentLootTable.Items.Count;
         var badge = $"{count} items";
-        var bw = ImGui.CalcTextSize(badge).X + 18;
+        var bw = ImGui.CalcTextSize(badge).X + Theme.Px(18);
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - bw, 0));
         ImGui.AlignTextToFramePadding();
         Theme.Badge(badge, Theme.Gold);
 
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Theme.Px(2)));
         Theme.Callout(FontAwesomeIcon.ExclamationTriangle, "Work in progress",
             "Loot table data is still being corrected and expanded. Some entries may be incomplete or inaccurate.",
             Theme.Warn);

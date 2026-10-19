@@ -54,7 +54,7 @@ public static class ItemActions
     public static bool MenuItem(FontAwesomeIcon icon, Vector4 iconColor, string label)
     {
         Theme.Icon(icon, iconColor);
-        ImGui.SameLine(0, 8);
+        ImGui.SameLine(0, Theme.Px(8));
         return ImGui.MenuItem(label);
     }
 }

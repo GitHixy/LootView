@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 
 namespace LootView.UI;
@@ -182,24 +183,26 @@ public static class Theme
             .Push(ImGuiCol.NavHighlight, Alpha(Gold, 0.7f))
             .Push(ImGuiCol.DragDropTarget, Gold);
 
-        var styles = ImRaii.PushStyle(ImGuiStyleVar.WindowRounding, RadiusLarge)
+        // Dalamud scales its own style with the global UI scale, so the metrics pushed over it have to follow.
+        var g = ImGuiHelpers.GlobalScale;
+        var styles = ImRaii.PushStyle(ImGuiStyleVar.WindowRounding, RadiusLarge * g)
             .Push(ImGuiStyleVar.WindowBorderSize, 1f)
-            .Push(ImGuiStyleVar.WindowPadding, new Vector2(14, 12))
-            .Push(ImGuiStyleVar.ChildRounding, Radius)
-            .Push(ImGuiStyleVar.FrameRounding, Radius)
+            .Push(ImGuiStyleVar.WindowPadding, new Vector2(14, 12) * g)
+            .Push(ImGuiStyleVar.ChildRounding, Radius * g)
+            .Push(ImGuiStyleVar.FrameRounding, Radius * g)
             .Push(ImGuiStyleVar.FrameBorderSize, 0f)
-            .Push(ImGuiStyleVar.FramePadding, new Vector2(9, 5))
-            .Push(ImGuiStyleVar.PopupRounding, Radius)
+            .Push(ImGuiStyleVar.FramePadding, new Vector2(9, 5) * g)
+            .Push(ImGuiStyleVar.PopupRounding, Radius * g)
             .Push(ImGuiStyleVar.PopupBorderSize, 1f)
-            .Push(ImGuiStyleVar.ItemSpacing, new Vector2(8, 6))
-            .Push(ImGuiStyleVar.ItemInnerSpacing, new Vector2(6, 5))
-            .Push(ImGuiStyleVar.IndentSpacing, 18f)
-            .Push(ImGuiStyleVar.ScrollbarSize, 11f)
-            .Push(ImGuiStyleVar.ScrollbarRounding, 6f)
-            .Push(ImGuiStyleVar.GrabMinSize, 12f)
-            .Push(ImGuiStyleVar.GrabRounding, 5f)
-            .Push(ImGuiStyleVar.TabRounding, Radius)
-            .Push(ImGuiStyleVar.CellPadding, new Vector2(8, 5));
+            .Push(ImGuiStyleVar.ItemSpacing, new Vector2(8, 6) * g)
+            .Push(ImGuiStyleVar.ItemInnerSpacing, new Vector2(6, 5) * g)
+            .Push(ImGuiStyleVar.IndentSpacing, 18f * g)
+            .Push(ImGuiStyleVar.ScrollbarSize, 11f * g)
+            .Push(ImGuiStyleVar.ScrollbarRounding, 6f * g)
+            .Push(ImGuiStyleVar.GrabMinSize, 12f * g)
+            .Push(ImGuiStyleVar.GrabRounding, 5f * g)
+            .Push(ImGuiStyleVar.TabRounding, Radius * g)
+            .Push(ImGuiStyleVar.CellPadding, new Vector2(8, 5) * g);
 
         return new Scope(colors, styles);
     }
@@ -230,8 +233,15 @@ public static class Theme
     /// </summary>
     public static float UiScale { get; set; } = 1f;
 
-    /// <summary>A layout measurement in the current window's scale.</summary>
-    public static float Px(float value) => value * UiScale;
+    /// <summary>
+    /// A layout measurement in the current window's scale and Dalamud's global UI scale. Fonts
+    /// already grow with the global scale, so every hand-placed offset, height and width that
+    /// sits next to text has to go through here or the text outgrows it.
+    /// </summary>
+    public static float Px(float value) => value * UiScale * ImGuiHelpers.GlobalScale;
+
+    /// <inheritdoc cref="Px(float)"/>
+    public static Vector2 Px(Vector2 value) => value * UiScale * ImGuiHelpers.GlobalScale;
 
     /// <summary>Sets the window font scale, relative to the window's own scale.</summary>
     public static void SetFontScale(float scale) => ImGui.SetWindowFontScale(scale * UiScale);
@@ -264,7 +274,7 @@ public static class Theme
     public static void IconText(FontAwesomeIcon icon, string label, Vector4 color)
     {
         Icon(icon, color);
-        ImGui.SameLine(0, 6);
+        ImGui.SameLine(0, Px(6));
         ImGui.TextColored(color, label);
     }
 
@@ -287,13 +297,13 @@ public static class Theme
         // Cool highlight bleeding down from the top of the panel.
         dl.AddRectFilledMultiColor(
             min,
-            new Vector2(max.X, min.Y + 110f),
+            new Vector2(max.X, min.Y + Px(110f)),
             U32(Crystal, 0.055f), U32(Crystal, 0.055f),
             U32(Crystal, 0f), U32(Crystal, 0f));
 
         // Warm pool in the bottom corner, echoing the game's lantern-lit frames.
         dl.AddRectFilledMultiColor(
-            new Vector2(min.X, max.Y - 160f),
+            new Vector2(min.X, max.Y - Px(160f)),
             max,
             U32(Gold, 0f), U32(Gold, 0f),
             U32(Gold, 0.05f), U32(Gold, 0.012f));
@@ -316,11 +326,11 @@ public static class Theme
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var width = ImGui.GetContentRegionAvail().X;
-        var height = subtitle is null ? 30f : 40f;
+        var height = Px(subtitle is null ? 30f : 40f);
 
         // Crest: a small rotated diamond, the shape FFXIV uses for job/duty markers.
-        var crestCenter = new Vector2(origin.X + 11f, origin.Y + height * 0.5f);
-        DrawDiamond(dl, crestCenter, 11f, U32(Gold, 0.18f), U32(Gold, 0.85f), 1.4f);
+        var crestCenter = new Vector2(origin.X + Px(11f), origin.Y + height * 0.5f);
+        DrawDiamond(dl, crestCenter, Px(11f), U32(Gold, 0.18f), U32(Gold, 0.85f), 1.4f);
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
@@ -329,7 +339,7 @@ public static class Theme
             dl.AddText(crestCenter - gs * 0.5f, U32(GoldBright), glyph);
         }
 
-        ImGui.SetCursorScreenPos(new Vector2(origin.X + 30f, origin.Y + (subtitle is null ? 5f : 1f)));
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + Px(30f), origin.Y + Px(subtitle is null ? 5f : 1f)));
         using (new FontScale(1.16f))
         {
             ImGui.TextColored(Text, title);
@@ -337,7 +347,7 @@ public static class Theme
 
         if (subtitle is not null)
         {
-            ImGui.SetCursorScreenPos(new Vector2(origin.X + 30f, origin.Y + 22f));
+            ImGui.SetCursorScreenPos(new Vector2(origin.X + Px(30f), origin.Y + Px(22f)));
             using var s = new FontScale(0.88f);
             ImGui.TextColored(TextMuted, subtitle);
         }
@@ -356,6 +366,7 @@ public static class Theme
     /// <summary>A separator that fades out toward both ends, with a brass core.</summary>
     public static void Rule(float verticalPadding = 6f)
     {
+        verticalPadding = Px(verticalPadding);
         ImGui.Dummy(new Vector2(0, verticalPadding));
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
@@ -386,35 +397,35 @@ public static class Theme
     /// <summary>Section label: brass caps preceded by a short rule.</summary>
     public static void SectionHeader(string label, FontAwesomeIcon? icon = null)
     {
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Px(2)));
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
         var h = ImGui.GetTextLineHeight();
 
         // Vertical brass tick to the left of the label.
-        dl.AddRectFilled(new Vector2(p.X, p.Y + 1), new Vector2(p.X + 2.5f, p.Y + h - 1), U32(Gold, 0.9f), 1.5f);
+        dl.AddRectFilled(new Vector2(p.X, p.Y + 1), new Vector2(p.X + Px(2.5f), p.Y + h - 1), U32(Gold, 0.9f), 1.5f);
 
-        ImGui.SetCursorScreenPos(new Vector2(p.X + 10, p.Y));
+        ImGui.SetCursorScreenPos(new Vector2(p.X + Px(10), p.Y));
         if (icon.HasValue)
         {
             Icon(icon.Value, Gold);
-            ImGui.SameLine(0, 7);
+            ImGui.SameLine(0, Px(7));
         }
 
         ImGui.TextColored(GoldBright, label.ToUpperInvariant());
 
         // Trailing rule running to the edge of the region.
         var after = ImGui.GetItemRectMax();
-        var right = p.X + ImGui.GetContentRegionAvail().X + 10;
-        if (right > after.X + 12)
+        var right = p.X + ImGui.GetContentRegionAvail().X + Px(10);
+        if (right > after.X + Px(12))
         {
             var y = p.Y + h * 0.5f;
             dl.AddRectFilledMultiColor(
-                new Vector2(after.X + 10, y), new Vector2(right, y + 1f),
+                new Vector2(after.X + Px(10), y), new Vector2(right, y + 1f),
                 U32(Gold, 0.35f), U32(Gold, 0f), U32(Gold, 0f), U32(Gold, 0.35f));
         }
 
-        ImGui.Dummy(new Vector2(0, 3));
+        ImGui.Dummy(new Vector2(0, Px(3)));
     }
 
 
@@ -446,7 +457,7 @@ public static class Theme
         var dl = ImGui.GetWindowDrawList();
         var regionLeft = ImGui.GetCursorScreenPos().X;
         var regionWidth = ImGui.GetContentRegionAvail().X;
-        var h = ImGui.GetFrameHeight() + 6f;
+        var h = ImGui.GetFrameHeight() + Px(6f);
 
         var changed = false;
         var x = regionLeft;
@@ -457,12 +468,12 @@ public static class Theme
         {
             var (icon, label) = tabs[i];
             var iconW = IconWidth(icon);
-            var w = iconW + 8f + ImGui.CalcTextSize(label).X + 24f;
+            var w = iconW + Px(8f) + ImGui.CalcTextSize(label).X + Px(24f);
 
             if (x + w > regionLeft + regionWidth && x > regionLeft)
             {
                 x = regionLeft;
-                y += h + 5f;
+                y += h + Px(5f);
                 rows++;
             }
 
@@ -482,7 +493,7 @@ public static class Theme
             {
                 dl.AddRectFilled(min, max, U32(Gold, 0.16f), Radius);
                 dl.AddRect(min, max, U32(Gold, 0.55f), Radius, ImDrawFlags.None, 1f);
-                dl.AddRectFilled(new Vector2(min.X + 8, max.Y - 2.5f), new Vector2(max.X - 8, max.Y - 1f), U32(Gold, 0.95f), 1f);
+                dl.AddRectFilled(new Vector2(min.X + Px(8), max.Y - Px(2.5f)), new Vector2(max.X - Px(8), max.Y - 1f), U32(Gold, 0.95f), 1f);
             }
             else if (hovered)
             {
@@ -495,13 +506,13 @@ public static class Theme
             {
                 var glyph = icon.ToIconString();
                 var gs = ImGui.CalcTextSize(glyph);
-                dl.AddText(new Vector2(min.X + 12, min.Y + (h - gs.Y) * 0.5f), U32(tint), glyph);
+                dl.AddText(new Vector2(min.X + Px(12), min.Y + (h - gs.Y) * 0.5f), U32(tint), glyph);
             }
 
             var ts = ImGui.CalcTextSize(label);
-            dl.AddText(new Vector2(min.X + 12 + iconW + 8, min.Y + (h - ts.Y) * 0.5f), U32(tint), label);
+            dl.AddText(new Vector2(min.X + Px(12) + iconW + Px(8), min.Y + (h - ts.Y) * 0.5f), U32(tint), label);
 
-            x += w + 5f;
+            x += w + Px(5f);
         }
 
         ImGui.SetCursorScreenPos(new Vector2(regionLeft, y + h));
@@ -552,7 +563,7 @@ public static class Theme
         }
 
         ImGui.SetCursorScreenPos(p);
-        using (ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(11, 9)))
+        using (ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Px(new Vector2(11, 9))))
         {
             return new CardScope(ImGui.BeginChild(id, new Vector2(w, h), false, ImGuiWindowFlags.AlwaysUseWindowPadding));
         }
@@ -565,7 +576,7 @@ public static class Theme
     {
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
-        const float h = 64f;
+        var h = Px(64f);
         var max = new Vector2(p.X + width, p.Y + h);
 
         dl.AddRectFilled(p, max, U32(Surface, 0.9f), Radius);
@@ -575,7 +586,7 @@ public static class Theme
         dl.AddRect(p, max, U32(Line), Radius, ImDrawFlags.None, 1f);
 
         // Accent spine on the left edge.
-        dl.AddRectFilled(new Vector2(p.X, p.Y + 6), new Vector2(p.X + 2.5f, max.Y - 6), U32(accent, 0.95f), 1.5f);
+        dl.AddRectFilled(new Vector2(p.X, p.Y + Px(6)), new Vector2(p.X + Px(2.5f), max.Y - Px(6)), U32(accent, 0.95f), 1.5f);
 
         // Oversized glyph watermark in the corner.
         using (ImRaii.PushFont(UiBuilder.IconFont))
@@ -583,17 +594,17 @@ public static class Theme
             var glyph = icon.ToIconString();
             SetFontScale(1.9f);
             var gs = ImGui.CalcTextSize(glyph);
-            dl.AddText(new Vector2(max.X - gs.X - 11, p.Y + (h - gs.Y) * 0.5f), U32(accent, 0.16f), glyph);
+            dl.AddText(new Vector2(max.X - gs.X - Px(11), p.Y + (h - gs.Y) * 0.5f), U32(accent, 0.16f), glyph);
             SetFontScale(1f);
         }
 
-        ImGui.SetCursorScreenPos(new Vector2(p.X + 13, p.Y + 10));
+        ImGui.SetCursorScreenPos(new Vector2(p.X + Px(13), p.Y + Px(10)));
         using (new FontScale(1.34f))
         {
             ImGui.TextColored(accent, value);
         }
 
-        ImGui.SetCursorScreenPos(new Vector2(p.X + 13, p.Y + 38));
+        ImGui.SetCursorScreenPos(new Vector2(p.X + Px(13), p.Y + Px(38)));
         using (new FontScale(0.86f))
         {
             ImGui.TextColored(TextMuted, caption.ToUpperInvariant());
@@ -611,8 +622,8 @@ public static class Theme
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
         var ts = ImGui.CalcTextSize(label);
-        var padX = 7f;
-        var padY = 2.5f;
+        var padX = Px(7f);
+        var padY = Px(2.5f);
         var max = new Vector2(p.X + ts.X + padX * 2, p.Y + ts.Y + padY * 2);
         var r = (max.Y - p.Y) * 0.5f;
 
@@ -634,6 +645,7 @@ public static class Theme
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
         var c = RarityColor(rarity);
+        size = Px(size);
         var center = new Vector2(p.X + size * 0.5f, p.Y + ImGui.GetTextLineHeight() * 0.5f);
 
         DrawDiamond(dl, center, size * 0.62f, U32(c, 0.9f), U32(Lighten(c, 0.5f), 0.95f), 1f);
@@ -694,6 +706,7 @@ public static class Theme
     {
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
+        size = Px(size);
         var max = new Vector2(p.X + size, p.Y + size);
 
         var clicked = ImGui.InvisibleButton(id, new Vector2(size, size));
@@ -712,7 +725,7 @@ public static class Theme
         if (active)
         {
             // Selected state gets a brass underline, like a chosen tab in-game.
-            dl.AddRectFilled(new Vector2(p.X + 6, max.Y - 2.5f), new Vector2(max.X - 6, max.Y - 1f), U32(accent, 0.9f), 1f);
+            dl.AddRectFilled(new Vector2(p.X + Px(6), max.Y - Px(2.5f)), new Vector2(max.X - Px(6), max.Y - 1f), U32(accent, 0.9f), 1f);
         }
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
@@ -736,8 +749,8 @@ public static class Theme
     /// </summary>
     public static bool Toggle(string id, ref bool value)
     {
-        const float w = 38f;
-        const float h = 20f;
+        var w = Px(38f);
+        var h = Px(20f);
 
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
@@ -760,12 +773,13 @@ public static class Theme
         dl.AddRectFilled(p, max, U32(track), h * 0.5f);
         dl.AddRect(p, max, U32(Mix(Line, Gold, t), hovered ? 1f : 0.7f), h * 0.5f, ImDrawFlags.None, 1f);
 
-        var knobR = h * 0.5f - 3f;
-        var knobX = p.X + 3f + knobR + (w - 6f - knobR * 2f) * t;
+        var inset = Px(3f);
+        var knobR = h * 0.5f - inset;
+        var knobX = p.X + inset + knobR + (w - inset * 2f - knobR * 2f) * t;
         var knobC = new Vector2(knobX, p.Y + h * 0.5f);
 
         if (t > 0.05f)
-            dl.AddCircleFilled(knobC, knobR + 3.5f * t, U32(GoldBright, 0.22f * t), 20);
+            dl.AddCircleFilled(knobC, knobR + Px(3.5f) * t, U32(GoldBright, 0.22f * t), 20);
 
         dl.AddCircleFilled(knobC, knobR, U32(Mix(TextMuted, GoldBright, t)), 20);
 
@@ -779,12 +793,12 @@ public static class Theme
     public static bool ToggleRow(string label, ref bool value, string? help = null)
     {
         var changed = Toggle($"##tgl_{label}", ref value);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Px(10));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(value ? Text : TextMuted, label);
         if (help is not null)
         {
-            ImGui.SameLine(0, 6);
+            ImGui.SameLine(0, Px(6));
             HelpMarker(help);
         }
         return changed;
@@ -795,7 +809,7 @@ public static class Theme
     {
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
-        var r = 7f;
+        var r = Px(7f);
         var center = new Vector2(p.X + r, p.Y + ImGui.GetTextLineHeight() * 0.5f + 1);
 
         ImGui.Dummy(new Vector2(r * 2, ImGui.GetTextLineHeight()));
@@ -812,7 +826,7 @@ public static class Theme
     /// <summary>Tooltip in the plugin's own frame rather than the ImGui default.</summary>
     public static void Tooltip(string text)
     {
-        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(11, 9))
+        using var s = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Px(new Vector2(11, 9)))
             .Push(ImGuiStyleVar.WindowRounding, Radius);
         using var c = ImRaii.PushColor(ImGuiCol.PopupBg, Rgb(0x0E, 0x14, 0x1F, 0.98f))
             .Push(ImGuiCol.Border, Alpha(Gold, 0.4f));
@@ -833,26 +847,27 @@ public static class Theme
     {
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
-        var h = ImGui.GetFrameHeight() + 2f;
+        var h = ImGui.GetFrameHeight() + Px(2f);
+        var inset = Px(3f);
 
         var widths = new float[options.Length];
         var total = 0f;
         for (var i = 0; i < options.Length; i++)
         {
-            widths[i] = ImGui.CalcTextSize(options[i]).X + 22f;
+            widths[i] = ImGui.CalcTextSize(options[i]).X + Px(22f);
             total += widths[i];
         }
 
-        dl.AddRectFilled(p, new Vector2(p.X + total + 6, p.Y + h), U32(Panel, 0.9f), Radius);
-        dl.AddRect(p, new Vector2(p.X + total + 6, p.Y + h), U32(Line), Radius, ImDrawFlags.None, 1f);
+        dl.AddRectFilled(p, new Vector2(p.X + total + inset * 2, p.Y + h), U32(Panel, 0.9f), Radius);
+        dl.AddRect(p, new Vector2(p.X + total + inset * 2, p.Y + h), U32(Line), Radius, ImDrawFlags.None, 1f);
 
         var changed = false;
-        var x = p.X + 3f;
+        var x = p.X + inset;
 
         for (var i = 0; i < options.Length; i++)
         {
-            ImGui.SetCursorScreenPos(new Vector2(x, p.Y + 3f));
-            if (ImGui.InvisibleButton($"{id}_{i}", new Vector2(widths[i], h - 6f)))
+            ImGui.SetCursorScreenPos(new Vector2(x, p.Y + inset));
+            if (ImGui.InvisibleButton($"{id}_{i}", new Vector2(widths[i], h - inset * 2)))
             {
                 if (selected != i) changed = true;
                 selected = i;
@@ -860,8 +875,8 @@ public static class Theme
 
             var hovered = ImGui.IsItemHovered();
             var isSel = selected == i;
-            var segMin = new Vector2(x, p.Y + 3f);
-            var segMax = new Vector2(x + widths[i], p.Y + h - 3f);
+            var segMin = new Vector2(x, p.Y + inset);
+            var segMax = new Vector2(x + widths[i], p.Y + h - inset);
 
             if (isSel)
             {
@@ -880,7 +895,7 @@ public static class Theme
         }
 
         ImGui.SetCursorScreenPos(p);
-        ImGui.Dummy(new Vector2(total + 6, h));
+        ImGui.Dummy(new Vector2(total + inset * 2, h));
         return changed;
     }
 
@@ -894,7 +909,7 @@ public static class Theme
             .Push(ImGuiCol.SliderGrabActive, GoldBright);
         using var s = ImRaii.PushStyle(ImGuiStyleVar.GrabRounding, 4f);
 
-        ImGui.SetNextItemWidth(width);
+        ImGui.SetNextItemWidth(Px(width));
         return ImGui.SliderFloat(label, ref value, min, max, format);
     }
 
@@ -907,7 +922,7 @@ public static class Theme
             .Push(ImGuiCol.SliderGrabActive, GoldBright);
         using var s = ImRaii.PushStyle(ImGuiStyleVar.GrabRounding, 4f);
 
-        ImGui.SetNextItemWidth(width);
+        ImGui.SetNextItemWidth(Px(width));
         return ImGui.SliderInt(label, ref value, min, max);
     }
 
@@ -919,20 +934,20 @@ public static class Theme
     public static void EmptyState(FontAwesomeIcon icon, string title, string? detail = null)
     {
         var avail = ImGui.GetContentRegionAvail();
-        var blockHeight = detail is null ? 86f : 108f;
-        var top = ImGui.GetCursorPosY() + Math.Max((avail.Y - blockHeight) * 0.45f, 8f);
+        var blockHeight = Px(detail is null ? 86f : 108f);
+        var top = ImGui.GetCursorPosY() + Math.Max((avail.Y - blockHeight) * 0.45f, Px(8f));
 
         ImGui.SetCursorPosY(top);
 
         var dl = ImGui.GetWindowDrawList();
         var center = new Vector2(
             ImGui.GetWindowPos().X + ImGui.GetWindowSize().X * 0.5f,
-            ImGui.GetCursorScreenPos().Y + 24f);
+            ImGui.GetCursorScreenPos().Y + Px(24f));
 
         // Slowly breathing ring behind the glyph.
         var pulse = 0.5f + 0.5f * MathF.Sin(Time * 1.3f);
-        dl.AddCircle(center, 26f + pulse * 3f, U32(Gold, 0.18f + pulse * 0.12f), 48, 1.2f);
-        dl.AddCircle(center, 19f, U32(Gold, 0.1f), 32, 1f);
+        dl.AddCircle(center, Px(26f + pulse * 3f), U32(Gold, 0.18f + pulse * 0.12f), 48, 1.2f);
+        dl.AddCircle(center, Px(19f), U32(Gold, 0.1f), 32, 1f);
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
@@ -943,12 +958,12 @@ public static class Theme
             SetFontScale(1f);
         }
 
-        ImGui.Dummy(new Vector2(0, 54));
+        ImGui.Dummy(new Vector2(0, Px(54)));
 
         CenteredText(title, Text);
         if (detail is not null)
         {
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Px(2)));
             CenteredText(detail, TextFaint);
         }
     }
@@ -965,7 +980,8 @@ public static class Theme
     public static void Spinner(float radius = 13f, float thickness = 2.5f, Vector4? color = null)
     {
         var p = ImGui.GetCursorScreenPos();
-        DrawSpinner(ImGui.GetWindowDrawList(), new Vector2(p.X + radius, p.Y + radius), radius, thickness, color);
+        radius = Px(radius);
+        DrawSpinner(ImGui.GetWindowDrawList(), new Vector2(p.X + radius, p.Y + radius), radius, Px(thickness), color);
         ImGui.Dummy(new Vector2(radius * 2, radius * 2));
     }
 
@@ -999,23 +1015,23 @@ public static class Theme
         var p = ImGui.GetCursorScreenPos();
         var w = ImGui.GetContentRegionAvail().X;
 
-        ImGui.SetCursorScreenPos(new Vector2(p.X + 34, p.Y + 8));
-        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + w - 46);
+        ImGui.SetCursorScreenPos(new Vector2(p.X + Px(34), p.Y + Px(8)));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + w - Px(46));
         ImGui.TextColored(accent, title);
         ImGui.TextColored(TextMuted, body);
         ImGui.PopTextWrapPos();
-        var bottom = ImGui.GetCursorScreenPos().Y + 8;
+        var bottom = ImGui.GetCursorScreenPos().Y + Px(8);
 
         var max = new Vector2(p.X + w, bottom);
         dl.AddRectFilled(p, max, U32(accent, 0.07f), Radius);
         dl.AddRect(p, max, U32(accent, 0.3f), Radius, ImDrawFlags.None, 1f);
-        dl.AddRectFilled(p, new Vector2(p.X + 2.5f, max.Y), U32(accent, 0.8f), 1.5f);
+        dl.AddRectFilled(p, new Vector2(p.X + Px(2.5f), max.Y), U32(accent, 0.8f), 1.5f);
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
             var glyph = icon.ToIconString();
             var gs = ImGui.CalcTextSize(glyph);
-            dl.AddText(new Vector2(p.X + 17 - gs.X * 0.5f, p.Y + 10), U32(accent), glyph);
+            dl.AddText(new Vector2(p.X + Px(17) - gs.X * 0.5f, p.Y + Px(10)), U32(accent), glyph);
         }
 
         ImGui.SetCursorScreenPos(p);
@@ -1025,6 +1041,7 @@ public static class Theme
     /// <summary>Horizontal meter with an optional inline label.</summary>
     public static void Meter(float fraction, float width, float height, Vector4 color, string? label = null)
     {
+        height = Px(height);
         var dl = ImGui.GetWindowDrawList();
         var p = ImGui.GetCursorScreenPos();
         var max = new Vector2(p.X + width, p.Y + height);
@@ -1045,7 +1062,7 @@ public static class Theme
         if (label is not null)
         {
             var ts = ImGui.CalcTextSize(label);
-            dl.AddText(new Vector2(max.X - ts.X - 6, p.Y + (height - ts.Y) * 0.5f), U32(Text, 0.9f), label);
+            dl.AddText(new Vector2(max.X - ts.X - Px(6), p.Y + (height - ts.Y) * 0.5f), U32(Text, 0.9f), label);
         }
 
         ImGui.Dummy(new Vector2(width, height));

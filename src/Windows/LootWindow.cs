@@ -159,7 +159,7 @@ public class LootWindow : Window
             // Rescaling resizes the window by the same factor, so the layout keeps its proportions.
             var scale = UiScale;
             if (drawnScale > 0 && Math.Abs(scale - drawnScale) > 0.001f)
-                ImGui.SetWindowSize(Vector2.Clamp(ImGui.GetWindowSize() * (scale / drawnScale), SizeConstraintMin!.Value, SizeConstraintMax!.Value));
+                ImGui.SetWindowSize(Vector2.Clamp(ImGui.GetWindowSize() * (scale / drawnScale), Scaled(SizeConstraintMin!.Value), Scaled(SizeConstraintMax!.Value)));
             drawnScale = scale;
 
             windowPos = ImGui.GetWindowPos();
@@ -226,13 +226,14 @@ public class LootWindow : Window
         Theme.SetFontScale(0.85f);
         var bylineSize = ImGui.CalcTextSize("by GitHixy");
         dl.AddText(
-            new Vector2(origin.X + Theme.Px(29f) + titleSize.X + 7f, titleTop + titleSize.Y - bylineSize.Y - 1f),
+            new Vector2(origin.X + Theme.Px(29f) + titleSize.X + Theme.Px(7f), titleTop + titleSize.Y - bylineSize.Y - 1f),
             Theme.U32(Theme.TextFaint), "by GitHixy");
         Theme.SetFontScale(1f);
 
         // --- Action cluster, right aligned ----------------------------
         var isInDuty = IsInDuty();
-        var btn = Theme.Px(28f);
+        const float buttonSize = 28f; // IconButton scales it itself
+        var btn = Theme.Px(buttonSize);
         var gap = Theme.Px(4f);
         var buttonCount = (isInDuty ? 7 : 6) + (config.ShowCurrencyPanel ? 1 : 0);
         var clusterWidth = buttonCount * btn + (buttonCount - 1) * gap;
@@ -249,7 +250,7 @@ public class LootWindow : Window
             var onlyMine = config.ShowOnlyOwnLoot;
             if (Theme.IconButton("##FilterOwn", onlyMine ? FontAwesomeIcon.User : FontAwesomeIcon.Users,
                     onlyMine ? "Showing only your loot - click to show everyone's" : "Showing all party loot - click to show only yours",
-                    Theme.Gold, onlyMine, btn))
+                    Theme.Gold, onlyMine, buttonSize))
             {
                 config.ShowOnlyOwnLoot = !onlyMine;
                 config.ShowOnlyMyLoot = config.ShowOnlyOwnLoot; // Sync both properties
@@ -257,13 +258,13 @@ public class LootWindow : Window
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##ClearAll", FontAwesomeIcon.Broom, "Clear the current list", Theme.Bad, false, btn))
+            if (Theme.IconButton("##ClearAll", FontAwesomeIcon.Broom, "Clear the current list", Theme.Bad, false, buttonSize))
             {
                 plugin.LootTracker.ClearLoot();
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##Stats", FontAwesomeIcon.ChartLine, "Statistics & history", Theme.Crystal, false, btn))
+            if (Theme.IconButton("##Stats", FontAwesomeIcon.ChartLine, "Statistics & history", Theme.Crystal, false, buttonSize))
             {
                 plugin.StatisticsWindow.IsOpen = true;
             }
@@ -271,7 +272,7 @@ public class LootWindow : Window
             if (isInDuty)
             {
                 ImGui.SameLine();
-                if (Theme.IconButton("##LootTable", FontAwesomeIcon.Table, "Loot table for this duty", Theme.Crystal, false, btn))
+                if (Theme.IconButton("##LootTable", FontAwesomeIcon.Table, "Loot table for this duty", Theme.Crystal, false, buttonSize))
                 {
                     plugin.LootTableWindow.IsOpen = true;
                     plugin.LootTableWindow.LoadCurrentZone();
@@ -284,7 +285,7 @@ public class LootWindow : Window
                 var drawerOpen = config.CurrencyPanelOpen;
                 var buttonMin = ImGui.GetCursorScreenPos();
                 if (Theme.IconButton("##Currencies", FontAwesomeIcon.Coins,
-                        drawerOpen ? "Hide currencies" : "Show currencies", Theme.Gold, drawerOpen, btn))
+                        drawerOpen ? "Hide currencies" : "Show currencies", Theme.Gold, drawerOpen, buttonSize))
                 {
                     config.CurrencyPanelOpen = !drawerOpen;
                     plugin.ConfigService.Save();
@@ -294,14 +295,14 @@ public class LootWindow : Window
                 if (!drawerOpen && currencyDrawer.HasRecentGain)
                 {
                     var pulse = 0.5f + 0.5f * MathF.Sin(Theme.Time * 8f);
-                    dl.AddCircleFilled(buttonMin + new Vector2(btn - 5f, 5f), 3.5f, Theme.U32(Theme.GoldBright, 0.6f + 0.4f * pulse));
+                    dl.AddCircleFilled(buttonMin + new Vector2(btn - Theme.Px(5f), Theme.Px(5f)), Theme.Px(3.5f), Theme.U32(Theme.GoldBright, 0.6f + 0.4f * pulse));
                 }
             }
 
             ImGui.SameLine();
             var isLocked = config.LockWindowPosition;
             if (Theme.IconButton("##Lock", isLocked ? FontAwesomeIcon.Lock : FontAwesomeIcon.LockOpen,
-                    isLocked ? "Unlock window" : "Lock position and size", Theme.Gold, isLocked, btn))
+                    isLocked ? "Unlock window" : "Lock position and size", Theme.Gold, isLocked, buttonSize))
             {
                 config.LockWindowPosition = !config.LockWindowPosition;
                 config.LockWindowSize = config.LockWindowPosition;
@@ -310,13 +311,13 @@ public class LootWindow : Window
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##Config", FontAwesomeIcon.Cog, "Settings", Theme.Crystal, false, btn))
+            if (Theme.IconButton("##Config", FontAwesomeIcon.Cog, "Settings", Theme.Crystal, false, buttonSize))
             {
                 plugin.ConfigWindow.IsOpen = true;
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##Patreon", FontAwesomeIcon.Heart, "Support development on Patreon", PatreonCoral, false, btn))
+            if (Theme.IconButton("##Patreon", FontAwesomeIcon.Heart, "Support development on Patreon", PatreonCoral, false, buttonSize))
             {
                 OpenUrl("https://www.patreon.com/GitHixy");
             }
@@ -422,7 +423,7 @@ public class LootWindow : Window
         dl.AddRectFilledMultiColor(origin, max,
             Theme.U32(Theme.Gold, 0.10f), Theme.U32(Theme.Gold, 0.02f),
             Theme.U32(Theme.Gold, 0f), Theme.U32(Theme.Gold, 0.04f));
-        dl.AddRectFilled(new Vector2(origin.X, origin.Y + 5), new Vector2(origin.X + 2.5f, max.Y - 5),
+        dl.AddRectFilled(new Vector2(origin.X, origin.Y + Theme.Px(5)), new Vector2(origin.X + Theme.Px(2.5f), max.Y - Theme.Px(5)),
             Theme.U32(Theme.Gold, 0.9f), 1.5f);
 
         var textY = origin.Y + (h - ImGui.GetTextLineHeight()) * 0.5f;
@@ -432,7 +433,7 @@ public class LootWindow : Window
         {
             var glyph = FontAwesomeIcon.Coins.ToIconString();
             dl.AddText(new Vector2(x, textY), Theme.U32(Theme.Gold), glyph);
-            x += ImGui.CalcTextSize(glyph).X + 9f;
+            x += ImGui.CalcTextSize(glyph).X + Theme.Px(9f);
         }
 
         var busy = market.IsFetching || market.HasWork;
@@ -445,7 +446,7 @@ public class LootWindow : Window
                 // messages in and out on consecutive frames reads as a flicker.
                 var r = ImGui.GetTextLineHeight() * 0.38f;
                 Theme.DrawSpinner(dl, new Vector2(x + r, textY + ImGui.GetTextLineHeight() * 0.5f), r, 2f, Theme.Gold);
-                dl.AddText(new Vector2(x + r * 2 + 9f, textY), Theme.U32(Theme.TextFaint), "Checking prices");
+                dl.AddText(new Vector2(x + r * 2 + Theme.Px(9f), textY), Theme.U32(Theme.TextFaint), "Checking prices");
             }
             else
             {
@@ -458,17 +459,17 @@ public class LootWindow : Window
         else
         {
             dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextMuted), "Avg");
-            x += ImGui.CalcTextSize("Avg").X + 7f;
+            x += ImGui.CalcTextSize("Avg").X + Theme.Px(7f);
 
             var avgText = FormatGil(averageTotal);
             dl.AddText(new Vector2(x, textY), Theme.U32(Theme.GoldBright), avgText);
-            x += ImGui.CalcTextSize(avgText).X + 14f;
+            x += ImGui.CalcTextSize(avgText).X + Theme.Px(14f);
 
             dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextFaint), "|");
-            x += ImGui.CalcTextSize("|").X + 14f;
+            x += ImGui.CalcTextSize("|").X + Theme.Px(14f);
 
             dl.AddText(new Vector2(x, textY), Theme.U32(Theme.TextMuted), "Now");
-            x += ImGui.CalcTextSize("Now").X + 7f;
+            x += ImGui.CalcTextSize("Now").X + Theme.Px(7f);
 
             var minText = listed > 0 ? FormatGil(minimumTotal) : "nothing listed";
             dl.AddText(new Vector2(x, textY),
@@ -482,7 +483,7 @@ public class LootWindow : Window
         if (priced > 0 && busy)
         {
             var r = ImGui.GetTextLineHeight() * 0.36f;
-            Theme.DrawSpinner(dl, new Vector2(x + 14f + r, textY + ImGui.GetTextLineHeight() * 0.5f), r, 1.8f, Theme.Crystal);
+            Theme.DrawSpinner(dl, new Vector2(x + Theme.Px(14f) + r, textY + ImGui.GetTextLineHeight() * 0.5f), r, 1.8f, Theme.Crystal);
         }
 
         var notes = new List<string>();
@@ -490,10 +491,11 @@ public class LootWindow : Window
         if (unpriced > 0) notes.Add($"{unpriced} unpriced");
         if (!string.IsNullOrEmpty(market.WorldName)) notes.Add(market.WorldName);
 
-        var resetSize = Theme.Px(20f);
-        var resetMin = new Vector2(max.X - 13f - resetSize, origin.Y + (h - resetSize) * 0.5f);
+        const float resetButton = 20f; // IconButton scales it itself
+        var resetSize = Theme.Px(resetButton);
+        var resetMin = new Vector2(max.X - Theme.Px(13f) - resetSize, origin.Y + (h - resetSize) * 0.5f);
         var overReset = ImGui.IsMouseHoveringRect(resetMin, resetMin + new Vector2(resetSize, resetSize));
-        var notesRight = resetMin.X - 8f;
+        var notesRight = resetMin.X - Theme.Px(8f);
 
         if (notes.Count > 0)
         {
@@ -523,14 +525,14 @@ public class LootWindow : Window
         // Resets only the earned total - clearing the list leaves it alone, and vice versa.
         ImGui.SetCursorScreenPos(resetMin);
         if (Theme.IconButton("##ResetEarned", FontAwesomeIcon.Undo,
-                "Reset the earned total\nThe loot list is left untouched", Theme.Gold, false, resetSize))
+                "Reset the earned total\nThe loot list is left untouched", Theme.Gold, false, resetButton))
         {
             earned.Clear();
         }
 
         ImGui.SetCursorScreenPos(origin);
         ImGui.Dummy(new Vector2(width, h));
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
     }
 
     /// <summary>
@@ -556,8 +558,8 @@ public class LootWindow : Window
 
         // The header labels sit outside the scrolling child, so they have to account for
         // the scrollbar up front or the columns drift by its width once the list overflows.
-        var labelRowHeight = ImGui.GetTextLineHeight() + 4f;
-        var contentHeight = lootItems.Count * (RowHeight + 2f);
+        var labelRowHeight = ImGui.GetTextLineHeight() + Theme.Px(4f);
+        var contentHeight = lootItems.Count * (RowHeight + Theme.Px(2f));
         var needsScrollbar = contentHeight > avail.Y - labelRowHeight;
         var listWidth = Math.Max(avail.X - (needsScrollbar ? ImGui.GetStyle().ScrollbarSize : 0f), 80f);
 
@@ -636,8 +638,8 @@ public class LootWindow : Window
 
             // Rarity spine on the leading edge.
             dl.AddRectFilled(
-                new Vector2(rowOrigin.X, rowOrigin.Y + 5),
-                new Vector2(rowOrigin.X + accentW, rowMax.Y - 5),
+                new Vector2(rowOrigin.X, rowOrigin.Y + Theme.Px(5)),
+                new Vector2(rowOrigin.X + accentW, rowMax.Y - Theme.Px(5)),
                 Theme.U32(rarityColor, isNew ? 1f : 0.8f), 1.5f);
 
             // --- Icon --------------------------------------------------
@@ -660,19 +662,20 @@ public class LootWindow : Window
             if (item.IsHQ)
             {
                 var nameWidth = Math.Min(ImGui.CalcTextSize(name).X, nameW - hqWidth);
-                DrawHqMark(dl, new Vector2(namePos.X + nameWidth + 6, textY));
+                DrawHqMark(dl, new Vector2(namePos.X + nameWidth + Theme.Px(6), textY));
             }
 
             // --- Quantity ----------------------------------------------
-            var qtyX = rowOrigin.X + nameX + nameW + 8;
+            var qtyX = rowOrigin.X + nameX + nameW + Theme.Px(8);
             if (item.Quantity > 1)
             {
                 var qty = $"x{item.Quantity}";
                 var qs = ImGui.CalcTextSize(qty);
-                var chipMin = new Vector2(qtyX, rowOrigin.Y + (RowHeight - qs.Y - 5) * 0.5f);
-                var chipMax = new Vector2(chipMin.X + qs.X + ChipPadding * 2f, chipMin.Y + qs.Y + 5);
+                var chipPadY = Theme.Px(2.5f);
+                var chipMin = new Vector2(qtyX, rowOrigin.Y + (RowHeight - qs.Y - chipPadY * 2) * 0.5f);
+                var chipMax = new Vector2(chipMin.X + qs.X + ChipPadding * 2f, chipMin.Y + qs.Y + chipPadY * 2);
                 dl.AddRectFilled(chipMin, chipMax, Theme.U32(Theme.Crystal, 0.16f), (chipMax.Y - chipMin.Y) * 0.5f);
-                dl.AddText(new Vector2(chipMin.X + ChipPadding, chipMin.Y + 2.5f), Theme.U32(Theme.CrystalBright), qty);
+                dl.AddText(new Vector2(chipMin.X + ChipPadding, chipMin.Y + chipPadY), Theme.U32(Theme.CrystalBright), qty);
             }
             else
             {
@@ -682,19 +685,19 @@ public class LootWindow : Window
             // --- Player -------------------------------------------------
             var playerX = qtyX + qtyW;
             var playerColor = item.IsOwnLoot ? Theme.Good : Theme.TextMuted;
-            DrawClipped(dl, new Vector2(playerX, textY), playerW - 8, item.PlayerName, Theme.U32(playerColor));
+            DrawClipped(dl, new Vector2(playerX, textY), playerW - Theme.Px(8), item.PlayerName, Theme.U32(playerColor));
 
             // --- Time ---------------------------------------------------
             var timeText = FormatTimeAgo(item.Timestamp);
             var tw = ImGui.CalcTextSize(timeText).X;
-            dl.AddText(new Vector2(rowMax.X - tw - 8, textY), Theme.U32(Theme.TextFaint), timeText);
+            dl.AddText(new Vector2(rowMax.X - tw - Theme.Px(8), textY), Theme.U32(Theme.TextFaint), timeText);
 
             if (hovered)
                 ShowItemTooltip(item);
 
             DrawItemContextMenu(item);
 
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
         }
     }
 
@@ -706,15 +709,16 @@ public class LootWindow : Window
         using var s = new Theme.FontScale(0.85f);
         var col = Theme.U32(Theme.TextFaint, 0.9f);
 
-        // These offsets mirror the row layout exactly: qtyX = nameX + nameW + 8.
+        // These offsets mirror the row layout exactly.
+        var qtyX = nameX + nameW + Theme.Px(8);
         dl.AddText(new Vector2(p.X + nameX, p.Y), col, "ITEM");
-        dl.AddText(new Vector2(p.X + nameX + nameW + 8 + ChipPadding, p.Y), col, "QTY");
-        dl.AddText(new Vector2(p.X + nameX + nameW + 8 + qtyW, p.Y), col, "PLAYER");
+        dl.AddText(new Vector2(p.X + qtyX + ChipPadding, p.Y), col, "QTY");
+        dl.AddText(new Vector2(p.X + qtyX + qtyW, p.Y), col, "PLAYER");
 
         var tw = ImGui.CalcTextSize("TIME").X;
-        dl.AddText(new Vector2(p.X + listWidth - tw - 8, p.Y), col, "TIME");
+        dl.AddText(new Vector2(p.X + listWidth - tw - Theme.Px(8), p.Y), col, "TIME");
 
-        ImGui.Dummy(new Vector2(listWidth, ImGui.GetTextLineHeight() + 4));
+        ImGui.Dummy(new Vector2(listWidth, ImGui.GetTextLineHeight() + Theme.Px(4)));
     }
 
     /// <summary>Item icon in a beveled, rarity-tinted frame.</summary>
@@ -726,7 +730,8 @@ public class LootWindow : Window
         if (item.Rarity >= 3 || isNew)
         {
             var glow = isNew ? 0.5f : 0.22f;
-            dl.AddRectFilled(pos - new Vector2(2, 2), max + new Vector2(2, 2), Theme.U32(rarityColor, glow * 0.35f), 5f);
+            var halo = new Vector2(Theme.Px(2), Theme.Px(2));
+            dl.AddRectFilled(pos - halo, max + halo, Theme.U32(rarityColor, glow * 0.35f), 5f);
         }
 
         dl.AddRectFilled(pos, max, Theme.U32(Theme.Panel, 0.9f), 4f);
@@ -815,7 +820,7 @@ public class LootWindow : Window
         if (isBlacklisted)
         {
             Theme.Icon(FontAwesomeIcon.EyeSlash, Theme.Good);
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             if (ImGui.MenuItem("Remove from blacklist"))
             {
                 config.BlacklistedItemIds?.Remove(item.ItemId);
@@ -825,7 +830,7 @@ public class LootWindow : Window
         else
         {
             Theme.Icon(FontAwesomeIcon.Ban, Theme.Bad);
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             if (ImGui.MenuItem("Add to blacklist"))
             {
                 config.BlacklistedItemIds ??= new List<uint>();
@@ -910,7 +915,7 @@ public class LootWindow : Window
                 ItemTooltip.Row(FontAwesomeIcon.Dice, item.RollType, item.RollValue.ToString(), rollColor);
             }
 
-            ImGui.Dummy(new Vector2(0, 2));
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
             var playerColor = item.IsOwnLoot ? Theme.Good : Theme.Text;
             Theme.IconText(item.IsOwnLoot ? FontAwesomeIcon.Star : FontAwesomeIcon.User,
                 item.IsOwnLoot ? "You obtained this" : item.PlayerName, playerColor);

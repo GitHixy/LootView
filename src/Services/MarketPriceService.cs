@@ -340,7 +340,7 @@ public class MarketPriceService : IDisposable
             }
 
             var withData = results.Count(r => r.HasData);
-            Plugin.Log.Info($"Market: fetched {results.Count} price(s) from Universalis for {world}, {withData} with data");
+            Plugin.Log.Debug($"Market: fetched {results.Count} price(s) from Universalis for {world}, {withData} with data");
 
             lock (cacheLock)
             {

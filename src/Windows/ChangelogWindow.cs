@@ -55,7 +55,7 @@ public class ChangelogWindow : Window
                 ? $"You're now on {current} - here's everything since your last update"
                 : $"Version {current}");
 
-        var footerHeight = ImGui.GetFrameHeight() + 26f;
+        var footerHeight = ImGui.GetFrameHeight() + Theme.Px(26f);
         using (var body = Theme.Region("##ChangelogBody",
                    new Vector2(0, ImGui.GetContentRegionAvail().Y - footerHeight)))
         {
@@ -87,20 +87,20 @@ public class ChangelogWindow : Window
         var accent = isLatest ? Theme.Gold : Theme.TextMuted;
         ImGui.AlignTextToFramePadding();
         Theme.Badge($"v{release.Version}", accent, isLatest);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         ImGui.AlignTextToFramePadding();
         using (new Theme.FontScale(1.08f))
         {
             ImGui.TextColored(isLatest ? Theme.Text : Theme.TextMuted, release.Headline);
         }
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
 
         // Tags share one column so the sentences all start on the same left edge.
         var tagWidth = 0f;
         foreach (var note in release.Notes)
             tagWidth = Math.Max(tagWidth, ImGui.CalcTextSize(Changelog.KindLabel(note.Kind)).X);
-        tagWidth += 18f;
+        tagWidth += Theme.Px(18f);
 
         foreach (var note in release.Notes)
         {
@@ -108,7 +108,7 @@ public class ChangelogWindow : Window
             var label = Changelog.KindLabel(note.Kind);
             var color = Changelog.KindColor(note.Kind);
 
-            ImGui.SetCursorScreenPos(new Vector2(origin.X + tagWidth + 8f, origin.Y));
+            ImGui.SetCursorScreenPos(new Vector2(origin.X + tagWidth + Theme.Px(8f), origin.Y));
             ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X);
             ImGui.TextColored(Theme.Text, note.Text);
             ImGui.PopTextWrapPos();
@@ -116,47 +116,49 @@ public class ChangelogWindow : Window
             // The tag is drawn after the text so it can be vertically centred on line one.
             var ts = ImGui.CalcTextSize(label);
             var tagMin = new Vector2(origin.X, origin.Y + 1f);
-            var tagMax = new Vector2(origin.X + tagWidth, origin.Y + ts.Y + 5f);
+            var tagHeight = ts.Y + Theme.Px(5f);
+            var tagMax = new Vector2(origin.X + tagWidth, origin.Y + tagHeight);
             dl.AddRectFilled(tagMin, tagMax, Theme.U32(color, 0.16f), 3f);
             dl.AddRect(tagMin, tagMax, Theme.U32(color, 0.4f), 3f, ImDrawFlags.None, 1f);
 
             using (new Theme.FontScale(0.82f))
             {
                 var ls = ImGui.CalcTextSize(label);
-                dl.AddText(new Vector2(origin.X + (tagWidth - ls.X) * 0.5f, origin.Y + (ts.Y + 5f - ls.Y) * 0.5f + 1f),
+                dl.AddText(new Vector2(origin.X + (tagWidth - ls.X) * 0.5f, origin.Y + (tagHeight - ls.Y) * 0.5f + 1f),
                     Theme.U32(color), label);
             }
 
-            ImGui.Dummy(new Vector2(0, 3));
+            ImGui.Dummy(new Vector2(0, Theme.Px(3)));
         }
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
         Theme.Rule(4f);
     }
 
     private void DrawFooter(string current)
     {
-        ImGui.Dummy(new Vector2(0, 2));
+        ImGui.Dummy(new Vector2(0, Theme.Px(2)));
+        var buttonHeight = ImGui.GetFrameHeight() + Theme.Px(6);
 
-        if (Theme.PrimaryButton("Got it", new Vector2(130, ImGui.GetFrameHeight() + 6)))
+        if (Theme.PrimaryButton("Got it", new Vector2(Theme.Px(130), buttonHeight)))
         {
             Dismiss(current);
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Patreon", new Vector2(110, ImGui.GetFrameHeight() + 6), Theme.Crystal))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("Patreon", new Vector2(Theme.Px(110), buttonHeight), Theme.Crystal))
         {
             OpenUrl("https://www.patreon.com/GitHixy");
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Discord", new Vector2(110, ImGui.GetFrameHeight() + 6), Theme.DiscordBlurple))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("Discord", new Vector2(Theme.Px(110), buttonHeight), Theme.DiscordBlurple))
         {
             OpenUrl(Plugin.DiscordUrl);
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("GitHub", new Vector2(110, ImGui.GetFrameHeight() + 6)))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("GitHub", new Vector2(Theme.Px(110), buttonHeight)))
         {
             OpenUrl("https://github.com/GitHixy/LootView");
         }

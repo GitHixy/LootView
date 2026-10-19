@@ -83,8 +83,8 @@ public sealed class CurrencyDrawer
         if (visible < 1f) return;
 
         var onLeft = config.CurrencyPanelOnLeft;
-        var top = hostPos.Y + 6f;
-        var height = Math.Max(hostSize.Y - 12f, HeaderHeight + RowHeight);
+        var top = hostPos.Y + Theme.Px(6f);
+        var height = Math.Max(hostSize.Y - Theme.Px(12f), HeaderHeight + RowHeight);
         var x = onLeft ? hostPos.X - Gap - visible : hostPos.X + hostSize.X + Gap;
 
         ImGui.SetNextWindowPos(new Vector2(x, top));
@@ -125,7 +125,7 @@ public sealed class CurrencyDrawer
         var now = DateTime.Now;
 
         // --- Header ---------------------------------------------------
-        var headerY = origin.Y + (HeaderHeight - ImGui.GetTextLineHeight()) * 0.5f + 2f;
+        var headerY = origin.Y + (HeaderHeight - ImGui.GetTextLineHeight()) * 0.5f + Theme.Px(2f);
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
             dl.AddText(new Vector2(origin.X + Pad, headerY), Theme.U32(Theme.Gold, eased),
@@ -134,7 +134,7 @@ public sealed class CurrencyDrawer
 
         using (new Theme.FontScale(0.85f))
         {
-            var labelY = origin.Y + (HeaderHeight - ImGui.GetTextLineHeight()) * 0.5f + 2f;
+            var labelY = origin.Y + (HeaderHeight - ImGui.GetTextLineHeight()) * 0.5f + Theme.Px(2f);
             dl.AddText(new Vector2(origin.X + Pad + Theme.Px(20f), labelY), Theme.U32(Theme.TextMuted), "CURRENCIES");
 
             var count = list.Count.ToString();
@@ -142,8 +142,8 @@ public sealed class CurrencyDrawer
             dl.AddText(new Vector2(origin.X + DrawerWidth - Pad - cw, labelY), Theme.U32(Theme.TextFaint), count);
         }
 
-        dl.AddLine(new Vector2(origin.X + Pad, origin.Y + HeaderHeight + 2f),
-            new Vector2(origin.X + DrawerWidth - Pad, origin.Y + HeaderHeight + 2f), Theme.U32(Theme.Line, 0.7f));
+        dl.AddLine(new Vector2(origin.X + Pad, origin.Y + HeaderHeight + Theme.Px(2f)),
+            new Vector2(origin.X + DrawerWidth - Pad, origin.Y + HeaderHeight + Theme.Px(2f)), Theme.U32(Theme.Line, 0.7f));
 
         // --- List -----------------------------------------------------
         ImGui.SetCursorScreenPos(new Vector2(origin.X + Theme.Px(4f), origin.Y + HeaderHeight + Theme.Px(6f)));
@@ -183,7 +183,7 @@ public sealed class CurrencyDrawer
         if (gaining)
         {
             dl.AddRectFilled(rowMin, rowMax, Theme.U32(Theme.Gold, 0.16f * fade), Theme.Radius);
-            dl.AddRectFilled(new Vector2(rowMin.X, rowMin.Y + 4f), new Vector2(rowMin.X + 2.5f, rowMax.Y - 4f),
+            dl.AddRectFilled(new Vector2(rowMin.X, rowMin.Y + Theme.Px(4f)), new Vector2(rowMin.X + Theme.Px(2.5f), rowMax.Y - Theme.Px(4f)),
                 Theme.U32(Theme.Gold, 0.9f * fade), 1.5f);
         }
 
@@ -210,7 +210,7 @@ public sealed class CurrencyDrawer
             dl.AddText(new Vector2(right - capW, textY), Theme.U32(Theme.TextFaint), capText);
         dl.AddText(new Vector2(right - capW - countW, textY), Theme.U32(amountColor), countText);
 
-        var nameRight = right - capW - countW - 6f;
+        var nameRight = right - capW - countW - Theme.Px(6f);
 
         // A fresh gain sits just left of the amount and drifts toward it as it fades.
         if (gaining)
@@ -218,9 +218,9 @@ public sealed class CurrencyDrawer
             var gain = $"+{FormatAmount(c.LastGain)}";
             var gw = ImGui.CalcTextSize(gain).X;
             var t = age / GainSeconds;
-            var gx = nameRight - gw + 4f * t;
+            var gx = nameRight - gw + Theme.Px(4f) * t;
             dl.AddText(new Vector2(gx, textY), Theme.U32(Theme.GoldBright, t < 0.6f ? 1f : fade / 0.4f), gain);
-            nameRight = gx - 6f;
+            nameRight = gx - Theme.Px(6f);
         }
 
         var nameX = iconPos.X + IconSize + Theme.Px(6f);
@@ -230,10 +230,11 @@ public sealed class CurrencyDrawer
         if (c.WeeklyCap > 0)
         {
             var weekly = Math.Clamp((float)c.Weekly / c.WeeklyCap, 0f, 1f);
-            var barMin = new Vector2(nameX, rowMax.Y - 3f);
-            var barW = rowMax.X - 5f - nameX;
-            dl.AddRectFilled(barMin, new Vector2(barMin.X + barW, rowMax.Y - 1.5f), Theme.U32(Theme.Line, 0.8f), 1f);
-            dl.AddRectFilled(barMin, new Vector2(barMin.X + barW * weekly, rowMax.Y - 1.5f),
+            var barMin = new Vector2(nameX, rowMax.Y - Theme.Px(3f));
+            var barBottom = rowMax.Y - Theme.Px(1.5f);
+            var barW = rowMax.X - Theme.Px(5f) - nameX;
+            dl.AddRectFilled(barMin, new Vector2(barMin.X + barW, barBottom), Theme.U32(Theme.Line, 0.8f), 1f);
+            dl.AddRectFilled(barMin, new Vector2(barMin.X + barW * weekly, barBottom),
                 Theme.U32(weekly >= 1f ? Theme.Good : Theme.Crystal, 0.9f), 1f);
         }
 

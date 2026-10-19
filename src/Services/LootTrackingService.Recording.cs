@@ -28,7 +28,7 @@ public partial class LootTrackingService
             });
 
             Plugin.Log.Info($"Roll session started for: {itemData.Name} (ID: {itemData.ItemId})");
-            Plugin.Log.Info($"Total active roll sessions: {activeRolls.Count}");
+            Plugin.Log.Debug($"Total active roll sessions: {activeRolls.Count}");
         }
 
         RollsUpdated?.Invoke();
@@ -54,7 +54,7 @@ public partial class LootTrackingService
             rollInfo.PlayerRolls[playerName] = (RollKind.Decided, 0);
         }
 
-        Plugin.Log.Info($"Lot cast: {playerName} decided on {itemData.Name}");
+        Plugin.Log.Debug($"Lot cast: {playerName} decided on {itemData.Name}");
         RollsUpdated?.Invoke();
     }
 
@@ -91,7 +91,7 @@ public partial class LootTrackingService
             rollInfo.PlayerRolls[playerName] = (rollType, rollValue);
         }
 
-        Plugin.Log.Info($"Roll tracked: {playerName} rolled {rollType} {rollValue} on {itemData.Name}");
+        Plugin.Log.Debug($"Roll tracked: {playerName} rolled {rollType} {rollValue} on {itemData.Name}");
         RollsUpdated?.Invoke();
     }
 
@@ -138,7 +138,7 @@ public partial class LootTrackingService
                     var roll = rollInfo.PlayerRolls[winnerRollName];
                     lootItem.RollType = roll.RollType;
                     lootItem.RollValue = roll.RollValue;
-                    Plugin.Log.Info($"Adding roll info to loot ('{playerName}' -> '{winnerRollName}'): {roll.RollType} {roll.RollValue}");
+                    Plugin.Log.Debug($"Adding roll info to loot ('{playerName}' -> '{winnerRollName}'): {roll.RollType} {roll.RollValue}");
 
                     // Don't remove yet - let the RollWindow handle cleanup after display timeout
                     rollInfo.WinnerName = winnerRollName;

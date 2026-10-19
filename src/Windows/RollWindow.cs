@@ -16,13 +16,35 @@ namespace LootView.Windows;
 /// </summary>
 public class RollWindow : Window
 {
-    private const float IconSize = 34f;
-    private const float RowHeight = 21f;
-    private const float TimerBarHeight = 3f;
-    private const float ActionButtonHeight = 28f;
+    // Measurements are given at 100% and follow Dalamud's global UI scale, like the text they hold.
+    // Rows that carry text never get shorter than the text itself, whatever font size is set.
+    private static float IconSize => Theme.Px(34f);
+    private static float RowHeight => Math.Max(Theme.Px(21f), ImGui.GetTextLineHeight() + Theme.Px(4f));
+    private static float TimerBarHeight => Theme.Px(3f);
+    private static float ActionButtonHeight => Math.Max(Theme.Px(28f), ImGui.GetTextLineHeight() + Theme.Px(10f));
 
     /// <summary>The action bar's buttons plus the rule and breathing room above them.</summary>
-    private const float ActionBarHeight = ActionButtonHeight + 13f;
+    private static float ActionBarHeight => ActionButtonHeight + Theme.Px(13f);
+
+    /// <summary>
+    /// The card's top block: the icon beside the item name and the status badge under it, whichever
+    /// is taller. Derived from the text height so the badge can never run into the buttons below.
+    /// </summary>
+    private static float CardHeaderHeight
+    {
+        get
+        {
+            var line = ImGui.GetTextLineHeight();
+            var textBlock = NameTop + line + BadgeGap + line + Theme.Px(5f);
+            return Math.Max(Theme.Px(9f) + IconSize, textBlock) + Theme.Px(8f);
+        }
+    }
+
+    /// <summary>Top of the item name, from the top of the card.</summary>
+    private static float NameTop => Theme.Px(10f);
+
+    /// <summary>Space between the item name and the status badge under it.</summary>
+    private static float BadgeGap => Theme.Px(3f);
 
     private readonly Plugin plugin;
 
@@ -39,6 +61,19 @@ public class RollWindow : Window
 
     private readonly Dictionary<Services.RollInfo, WinnerBurst> bursts = [];
     private readonly Random random = new();
+
+    /// <summary>
+    /// Made-up items from the preview button in the settings, so the window can be checked without a
+    /// duty. They live only here: the tracker never sees them and nothing is ever sent to the game.
+    /// </summary>
+    private readonly List<Services.RollInfo> previewRolls = [];
+
+    private static readonly string[] PreviewParty = ["Y'shtola Rhul", "Thancred Waters", "Krile Mayer Baldesion"];
+
+    /// <summary>How long a click on a preview button shows as in flight, like a real roll waiting on the game.</summary>
+    private const double PreviewPendingSeconds = 0.8;
+
+    private static string LocalPlayerName => Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "You";
 
     public RollWindow(Plugin plugin) : base("Loot Rolls###LootViewRolls")
     {
@@ -67,12 +102,155 @@ public class RollWindow : Window
         if (activeRolls.Count > 0 && !IsOpen)
         {
             IsOpen = true;
-            Plugin.Log.Info($"Roll window opened - {activeRolls.Count} active roll(s)");
+            Plugin.Log.Debug($"Roll window opened - {activeRolls.Count} active roll(s)");
         }
     }
 
     /// <summary>With our window gone, give the game's own back so the player can still roll.</summary>
-    protected override void OnClosed() => plugin.NativeLootWindow.Refresh();
+    protected override void OnClosed()
+    {
+        previewRolls.Clear();
+        plugin.NativeLootWindow.Refresh();
+    }
+
+    /// <summary>
+    /// Opens the window on three sample items: one open and weekly-limited with your buttons, one open
+    /// and about to time out, and one just won. Real rolls in progress stay where they are.
+    /// </summary>
+    public void ShowPreview()
+    {
+        previewRolls.Clear();
+
+        var items = PickPreviewItems(3);
+        var me = LocalPlayerName;
+        var now = DateTime.Now;
+
+        var open = NewPreviewRoll(items[0], now, 90);
+        open.IsWeekly = true;
+        open.PlayerRolls[PreviewParty[0]] = (Services.RollKind.Decided, 0);
+        open.PlayerRolls[PreviewParty[1]] = (Services.RollKind.Decided, 0);
+
+        var closing = NewPreviewRoll(items[1], now, 25);
+        closing.PlayerRolls[PreviewParty[1]] = (Services.RollKind.Pass, 0);
+
+        var won = NewPreviewRoll(items[2], now, 0);
+        won.PlayerRolls[PreviewParty[2]] = (Services.RollKind.Need, 88);
+        won.PlayerRolls[PreviewParty[0]] = (Services.RollKind.Greed, 42);
+        won.PlayerRolls[me] = (Services.RollKind.Greed, 15);
+        won.PlayerRolls[PreviewParty[1]] = (Services.RollKind.Pass, 0);
+        won.WinnerName = PreviewParty[2];
+        won.FinishedAt = now;
+        won.CloseReason = Services.RollCloseReason.Finished;
+
+        previewRolls.AddRange([open, closing, won]);
+        IsOpen = true;
+        Plugin.Log.Debug("Roll window preview opened");
+    }
+
+    private static Services.RollInfo NewPreviewRoll((uint Id, string Name, uint Icon, uint Rarity) item, DateTime now, double seconds) => new()
+    {
+        ItemId = item.Id,
+        ItemName = item.Name,
+        IconId = item.Icon,
+        Rarity = item.Rarity,
+        RollStartTime = now,
+        Deadline = now.AddSeconds(seconds),
+        TimerSeconds = Services.RollInfo.DefaultRollSeconds,
+    };
+
+    /// <summary>Real gear from the game data, so the preview has icons, colours and tooltips.</summary>
+    private List<(uint Id, string Name, uint Icon, uint Rarity)> PickPreviewItems(int count)
+    {
+        var picks = new List<(uint Id, string Name, uint Icon, uint Rarity)>();
+        try
+        {
+            var candidates = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>()
+                .Where(i => i.EquipSlotCategory.RowId != 0 && i.Icon != 0 && i.Rarity >= 2 && i.Rarity <= 4)
+                .OrderByDescending(i => i.LevelItem.RowId)
+                .Take(150)
+                .ToList();
+
+            while (picks.Count < count && candidates.Count > 0)
+            {
+                var item = candidates[random.Next(candidates.Count)];
+                candidates.Remove(item);
+                picks.Add((item.RowId, item.Name.ExtractText(), item.Icon, item.Rarity));
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "Could not pick items for the roll window preview");
+        }
+
+        while (picks.Count < count)
+            picks.Add((0, $"Sample Item {picks.Count + 1}", 0, 3));
+
+        return picks;
+    }
+
+    /// <summary>Everyone in the made-up party, you included.</summary>
+    private static IEnumerable<string> PreviewMembers() => PreviewParty.Prepend(LocalPlayerName);
+
+    /// <summary>
+    /// Ends a preview item the way the game would: hidden choices are revealed, whoever never chose
+    /// is marked as such, and the best Need (or failing that, Greed) wins.
+    /// </summary>
+    private void ResolvePreview(Services.RollInfo roll, Services.RollChoice? mine)
+    {
+        var me = LocalPlayerName;
+        if (mine is { } choice)
+        {
+            roll.PlayerRolls[me] = choice switch
+            {
+                Services.RollChoice.Need => (Services.RollKind.Need, random.Next(1, 100)),
+                Services.RollChoice.Greed => (Services.RollKind.Greed, random.Next(1, 100)),
+                _ => (Services.RollKind.Pass, 0),
+            };
+        }
+
+        foreach (var name in PreviewMembers())
+        {
+            if (roll.PlayerRolls.TryGetValue(name, out var existing) && existing.RollType != Services.RollKind.Decided)
+                continue;
+
+            roll.PlayerRolls[name] = name == me
+                ? (Services.RollKind.NoRoll, 0)
+                : random.Next(3) switch
+                {
+                    0 => (Services.RollKind.Need, random.Next(1, 100)),
+                    1 => (Services.RollKind.Greed, random.Next(1, 100)),
+                    _ => (Services.RollKind.Pass, 0),
+                };
+        }
+
+        roll.WinnerName = roll.PlayerRolls
+            .Where(r => Services.RollKind.IsRoll(r.Value.RollType))
+            .OrderBy(r => Services.RollKind.Order(r.Value.RollType))
+            .ThenByDescending(r => r.Value.RollValue)
+            .Select(r => r.Key)
+            .FirstOrDefault() ?? string.Empty;
+
+        roll.PendingChoice = null;
+        roll.FinishedAt = DateTime.Now;
+        roll.CloseReason = Services.RollCloseReason.Finished;
+    }
+
+    /// <summary>Plays the preview forward: clicks land, timers run out, results leave on schedule.</summary>
+    private void UpdatePreview()
+    {
+        foreach (var roll in previewRolls)
+        {
+            if (roll.IsFinished)
+                continue;
+
+            if (roll.PendingChoice is { } choice && (DateTime.Now - roll.PendingSince).TotalSeconds >= PreviewPendingSeconds)
+                ResolvePreview(roll, choice);
+            else if (roll.SecondsLeft <= 0)
+                ResolvePreview(roll, null);
+        }
+
+        previewRolls.RemoveAll(r => SecondsUntilHidden(r) is <= 0d);
+    }
 
     private double ResultSeconds => Math.Max(plugin.Configuration.RollResultSeconds, 1);
 
@@ -85,7 +263,12 @@ public class RollWindow : Window
         try
         {
             plugin.LootTracker.RemoveExpiredRolls();
-            var activeRolls = plugin.LootTracker.ActiveRolls;
+            if (previewRolls.Count > 0)
+                UpdatePreview();
+
+            var activeRolls = previewRolls.Count == 0
+                ? plugin.LootTracker.ActiveRolls
+                : plugin.LootTracker.ActiveRolls.Concat(previewRolls).ToList();
 
             if (bursts.Count > 0)
             {
@@ -124,11 +307,12 @@ public class RollWindow : Window
     {
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
-        const float h = 28f;
-        var width = Math.Max(ImGui.GetContentRegionAvail().X, 340f);
+        var h = Math.Max(Theme.Px(28f), ImGui.GetTextLineHeight() + Theme.Px(8f));
+        var width = Math.Max(ImGui.GetContentRegionAvail().X, Theme.Px(340f));
+        var ring = Theme.Px(11f);
 
         // Once every item is resolved, the ring counts down to the last one disappearing.
-        var center = new Vector2(origin.X + 12f, origin.Y + h * 0.5f);
+        var center = new Vector2(origin.X + Theme.Px(12f), origin.Y + h * 0.5f);
         double? closingIn = activeRolls.All(r => r.IsFinished)
             ? activeRolls.Max(r => SecondsUntilHidden(r) ?? 0)
             : null;
@@ -137,22 +321,22 @@ public class RollWindow : Window
         {
             var fraction = (float)(closing / ResultSeconds);
 
-            dl.AddCircle(center, 11f, Theme.U32(Theme.Line), 32, 2f);
+            dl.AddCircle(center, ring, Theme.U32(Theme.Line), 32, 2f);
 
             dl.PathClear();
             const int segs = 32;
             for (var i = 0; i <= segs; i++)
             {
                 var a = -MathF.PI * 0.5f + MathF.PI * 2f * fraction * i / segs;
-                dl.PathLineTo(new Vector2(center.X + MathF.Cos(a) * 11f, center.Y + MathF.Sin(a) * 11f));
+                dl.PathLineTo(new Vector2(center.X + MathF.Cos(a) * ring, center.Y + MathF.Sin(a) * ring));
             }
             dl.PathStroke(Theme.U32(fraction < 0.3f ? Theme.Bad : Theme.Gold, 0.95f), ImDrawFlags.None, 2f);
         }
         else
         {
             var pulse = 0.55f + 0.45f * MathF.Sin(Theme.Time * 3.2f);
-            dl.AddCircleFilled(center, 11f, Theme.U32(Theme.Gold, 0.10f + pulse * 0.10f), 32);
-            dl.AddCircle(center, 11f, Theme.U32(Theme.Gold, 0.5f + pulse * 0.4f), 32, 1.4f);
+            dl.AddCircleFilled(center, ring, Theme.U32(Theme.Gold, 0.10f + pulse * 0.10f), 32);
+            dl.AddCircle(center, ring, Theme.U32(Theme.Gold, 0.5f + pulse * 0.4f), 32, 1.4f);
         }
 
         using (ImRaii.PushFont(UiBuilder.IconFont))
@@ -162,32 +346,43 @@ public class RollWindow : Window
             dl.AddText(center - gs * 0.5f, Theme.U32(Theme.GoldBright), glyph);
         }
 
-        ImGui.SetCursorScreenPos(new Vector2(origin.X + 30f, origin.Y + 4f));
         using (new Theme.FontScale(1.08f))
         {
+            ImGui.SetCursorScreenPos(new Vector2(origin.X + Theme.Px(30f), origin.Y + (h - ImGui.GetTextLineHeight()) * 0.5f));
             ImGui.TextColored(Theme.GoldBright, "Loot Rolls");
+        }
+
+        if (previewRolls.Count > 0)
+        {
+            ImGui.SameLine(0, Theme.Px(10));
+            Theme.Badge("Preview", Theme.Crystal);
+            if (ImGui.IsItemHovered())
+                Theme.Tooltip("Sample items to check how the window looks. Nothing here is sent to the game.");
         }
 
         if (closingIn is { } remaining)
         {
-            ImGui.SameLine(0, 10);
+            ImGui.SameLine(0, Theme.Px(10));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextFaint, $"closing in {Math.Ceiling(remaining):F0}s");
         }
 
         // While the game's own loot window is kept hidden, offer a way back to it.
+        const float headerButton = 24f; // IconButton scales it itself
+        var button = Theme.Px(headerButton);
         if (plugin.NativeLootWindow.IsHidden)
         {
-            ImGui.SetCursorScreenPos(new Vector2(origin.X + width - 52f, origin.Y + (h - 24f) * 0.5f));
-            if (Theme.IconButton("##ShowNative", FontAwesomeIcon.WindowRestore, "Show the game's Need/Greed window", Theme.Crystal, false, 24f))
+            ImGui.SetCursorScreenPos(new Vector2(origin.X + width - button * 2 - Theme.Px(4f), origin.Y + (h - button) * 0.5f));
+            if (Theme.IconButton("##ShowNative", FontAwesomeIcon.WindowRestore, "Show the game's Need/Greed window", Theme.Crystal, false, headerButton))
                 plugin.NativeLootWindow.Reveal();
         }
 
         // Close button, right aligned.
-        ImGui.SetCursorScreenPos(new Vector2(origin.X + width - 24f, origin.Y + (h - 24f) * 0.5f));
-        if (Theme.IconButton("##CloseRolls", FontAwesomeIcon.Times, "Close and clear all rolls", Theme.Bad, false, 24f))
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + width - button, origin.Y + (h - button) * 0.5f));
+        if (Theme.IconButton("##CloseRolls", FontAwesomeIcon.Times, "Close and clear all rolls", Theme.Bad, false, headerButton))
         {
             IsOpen = false;
+            previewRolls.Clear();
             plugin.LootTracker.ClearAllRolls();
         }
 
@@ -203,16 +398,18 @@ public class RollWindow : Window
 
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
-        var width = Math.Max(ImGui.GetContentRegionAvail().X, 340f);
+        var width = Math.Max(ImGui.GetContentRegionAvail().X, Theme.Px(340f));
+        var pad = Theme.Px(12f);
 
         var allRolls = rollInfo.GetSortedRolls().ToList();
         var rarityColor = Theme.RarityColor(rollInfo.Rarity);
         var won = !string.IsNullOrEmpty(rollInfo.WinnerName);
         var finished = rollInfo.IsFinished;
+        var preview = previewRolls.Contains(rollInfo);
 
         // With 24 players a row each would run off the screen, so an alliance gets a counter instead:
         // only Need/Greed rolls and your own row are listed, and passes are summed up in one line.
-        var allianceSize = plugin.LootTracker.AllianceSize();
+        var allianceSize = preview ? null : plugin.LootTracker.AllianceSize();
         var sortedRolls = allianceSize == null
             ? allRolls
             : allRolls.Where(r => Services.RollKind.IsRoll(r.RollType) || Services.LootTrackingService.SameName(r.PlayerName, localPlayerName)).ToList();
@@ -221,21 +418,22 @@ public class RollWindow : Window
         // Party members who haven't chosen yet, while the item is still open.
         var waiting = finished || allianceSize != null
             ? []
-            : plugin.LootTracker.PartyMemberNames()
+            : (preview ? PreviewMembers().ToList() : plugin.LootTracker.PartyMemberNames())
                 .Where(n => !rollInfo.PlayerRolls.Keys.Any(k => Services.LootTrackingService.SameName(k, n)))
                 .ToList();
 
         var placeholderRow = sortedRolls.Count == 0 && waiting.Count == 0 && others.Count == 0 ? 1 : 0;
         var rowsHeight = (sortedRolls.Count + placeholderRow + (waiting.Count > 0 ? 1 : 0) + (others.Count > 0 ? 1 : 0)) * RowHeight;
         var actionBar = !finished && plugin.Configuration.ShowRollButtons &&
-                        (Services.LootTrackingService.IsRollPending(rollInfo) || plugin.LootTracker.GetRollOptions(rollInfo).Any);
+                        (Services.LootTrackingService.IsRollPending(rollInfo) || OptionsFor(rollInfo, preview).Any);
 
         // In weekly-limited duties only one item can be yours, so rolling here puts your other rolls at stake.
         var weekly = rollInfo.IsWeekly && !finished;
-        var atStake = weekly && actionBar ? plugin.LootTracker.OtherWeeklyRolls(rollInfo) : [];
+        var atStake = weekly && actionBar && !preview ? plugin.LootTracker.OtherWeeklyRolls(rollInfo) : [];
         var stakeRow = atStake.Count > 0 ? RowHeight : 0;
 
-        var cardHeight = 14f + IconSize + 8f + rowsHeight + stakeRow + (actionBar ? ActionBarHeight : 0) + (finished ? 0 : TimerBarHeight + 6f);
+        var headerHeight = CardHeaderHeight;
+        var cardHeight = headerHeight + rowsHeight + stakeRow + (actionBar ? ActionBarHeight : 0) + (finished ? 0 : TimerBarHeight + Theme.Px(6f)) + Theme.Px(5f);
 
         var max = new Vector2(origin.X + width, origin.Y + cardHeight);
 
@@ -245,11 +443,11 @@ public class RollWindow : Window
             Theme.U32(rarityColor, 0.12f), Theme.U32(rarityColor, 0.03f),
             Theme.U32(rarityColor, 0f), Theme.U32(rarityColor, 0.05f));
         dl.AddRect(origin, max, Theme.U32(rarityColor, finished ? 0.5f : 0.3f), Theme.Radius, ImDrawFlags.None, 1f);
-        dl.AddRectFilled(new Vector2(origin.X, origin.Y + 6), new Vector2(origin.X + 2.5f, max.Y - 6),
+        dl.AddRectFilled(new Vector2(origin.X, origin.Y + Theme.Px(6)), new Vector2(origin.X + Theme.Px(2.5f), max.Y - Theme.Px(6)),
             Theme.U32(rarityColor, 0.9f), 1.5f);
 
         // Item icon.
-        var iconPos = new Vector2(origin.X + 12f, origin.Y + 9f);
+        var iconPos = new Vector2(origin.X + pad, origin.Y + Theme.Px(9f));
         if (rollInfo.IconId > 0)
         {
             try
@@ -263,8 +461,9 @@ public class RollWindow : Window
                     {
                         // Undecided items breathe, so your eye goes to what's still in play.
                         var pulse = 0.5f + 0.5f * MathF.Sin(Theme.Time * 3f);
-                        dl.AddRectFilled(iconPos - new Vector2(3, 3),
-                            iconPos + new Vector2(IconSize + 3, IconSize + 3),
+                        var glow = new Vector2(Theme.Px(3), Theme.Px(3));
+                        dl.AddRectFilled(iconPos - glow,
+                            iconPos + new Vector2(IconSize, IconSize) + glow,
                             Theme.U32(rarityColor, 0.12f + pulse * 0.18f), 6f);
                     }
 
@@ -278,8 +477,9 @@ public class RollWindow : Window
         }
 
         // Item name + state.
-        var textX = origin.X + 12f + IconSize + 11f;
-        ImGui.SetCursorScreenPos(new Vector2(textX, origin.Y + 10f));
+        var textX = origin.X + pad + IconSize + Theme.Px(11f);
+        var nameY = origin.Y + NameTop;
+        ImGui.SetCursorScreenPos(new Vector2(textX, nameY));
         ImGui.TextColored(rarityColor, rollInfo.ItemName);
         DrawItemInteractions(rollInfo, drawMenu: false);
 
@@ -293,7 +493,7 @@ public class RollWindow : Window
         {
             var hideText = $"{Math.Ceiling(hideIn):F0}s";
             var hw = ImGui.CalcTextSize(hideText).X;
-            dl.AddText(new Vector2(origin.X + width - 14f - hw, origin.Y + 10f), Theme.U32(Theme.TextFaint), hideText);
+            dl.AddText(new Vector2(origin.X + width - Theme.Px(14f) - hw, nameY), Theme.U32(Theme.TextFaint), hideText);
         }
         else
         {
@@ -306,12 +506,12 @@ public class RollWindow : Window
             {
                 var glyph = FontAwesomeIcon.Stopwatch.ToIconString();
                 var gw = ImGui.CalcTextSize(glyph).X;
-                dl.AddText(new Vector2(origin.X + width - 14f - tw - 6f - gw, origin.Y + 11f), Theme.U32(timerColor, 0.9f), glyph);
+                dl.AddText(new Vector2(origin.X + width - Theme.Px(14f) - tw - Theme.Px(6f) - gw, nameY + 1f), Theme.U32(timerColor, 0.9f), glyph);
             }
-            dl.AddText(new Vector2(origin.X + width - 14f - tw, origin.Y + 10f), Theme.U32(timerColor), timerText);
+            dl.AddText(new Vector2(origin.X + width - Theme.Px(14f) - tw, nameY), Theme.U32(timerColor), timerText);
         }
 
-        ImGui.SetCursorScreenPos(new Vector2(textX, origin.Y + 10f + ImGui.GetTextLineHeight() + 3f));
+        ImGui.SetCursorScreenPos(new Vector2(textX, nameY + ImGui.GetTextLineHeight() + BadgeGap));
         if (won)
         {
             Theme.Badge($"Won by {rollInfo.WinnerName}", Theme.Gold);
@@ -333,7 +533,7 @@ public class RollWindow : Window
 
         if (weekly)
         {
-            ImGui.SameLine(0, 6);
+            ImGui.SameLine(0, Theme.Px(6));
             Theme.Badge("Weekly limit", Theme.Warn);
             if (ImGui.IsItemHovered())
                 Theme.Tooltip(WeeklyLimitNote);
@@ -342,7 +542,7 @@ public class RollWindow : Window
         // Need / Greed / Pass sit right under the name, above the rolls: rows keep arriving
         // while you decide, and in a 24-player alliance they used to push the buttons away
         // from the cursor.
-        var rowY = origin.Y + 9f + IconSize + 8f;
+        var rowY = origin.Y + headerHeight;
         if (stakeRow > 0)
         {
             DrawStakeRow(dl, new Vector2(origin.X, rowY), width, atStake);
@@ -351,14 +551,15 @@ public class RollWindow : Window
 
         if (actionBar)
         {
-            DrawActionBar(dl, rollInfo, origin.X + 12f, rowY, width - 24f, atStake);
+            DrawActionBar(dl, rollInfo, preview, origin.X + pad, rowY, width - pad * 2, atStake);
             rowY += ActionBarHeight;
         }
 
         // Roll rows.
         if (placeholderRow > 0)
         {
-            dl.AddText(new Vector2(origin.X + 18f, rowY), Theme.U32(Theme.TextFaint), "Waiting for rolls...");
+            dl.AddText(new Vector2(origin.X + Theme.Px(18f), rowY + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f),
+                Theme.U32(Theme.TextFaint), "Waiting for rolls...");
             rowY += RowHeight;
         }
 
@@ -381,10 +582,10 @@ public class RollWindow : Window
             var textY = rowY + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
             using (ImRaii.PushFont(UiBuilder.IconFont))
             {
-                dl.AddText(new Vector2(origin.X + 22f, textY + 1f), Theme.U32(Theme.TextFaint),
+                dl.AddText(new Vector2(origin.X + Theme.Px(22f), textY + 1f), Theme.U32(Theme.TextFaint),
                     FontAwesomeIcon.HourglassHalf.ToIconString());
             }
-            Theme.ClipText(dl, new Vector2(origin.X + 40f, textY), width - 58f,
+            Theme.ClipText(dl, new Vector2(origin.X + Theme.Px(40f), textY), width - Theme.Px(58f),
                 $"Waiting on {string.Join(", ", waiting)}", Theme.U32(Theme.TextFaint));
             rowY += RowHeight;
         }
@@ -393,8 +594,8 @@ public class RollWindow : Window
         if (!finished)
         {
             var fraction = (float)Math.Clamp(rollInfo.SecondsLeft / Math.Max(rollInfo.TimerSeconds, 1f), 0, 1);
-            var barMin = new Vector2(origin.X + 12f, rowY + 3f);
-            var barW = width - 24f;
+            var barMin = new Vector2(origin.X + pad, rowY + Theme.Px(3f));
+            var barW = width - pad * 2;
             dl.AddRectFilled(barMin, barMin + new Vector2(barW, TimerBarHeight), Theme.U32(Theme.Line, 0.8f), 2f);
             dl.AddRectFilled(barMin, barMin + new Vector2(barW * fraction, TimerBarHeight),
                 Theme.U32(TimerColor(rollInfo.SecondsLeft), 0.9f), 2f);
@@ -408,7 +609,7 @@ public class RollWindow : Window
 
         ImGui.SetCursorScreenPos(origin);
         ImGui.Dummy(new Vector2(width, cardHeight));
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
     }
 
     /// <summary>
@@ -456,7 +657,7 @@ public class RollWindow : Window
             {
                 var t = age / SweepSeconds;
                 var eased = 1f - (1f - t) * (1f - t);
-                var bandW = 90f;
+                var bandW = Theme.Px(90f);
                 var x = origin.X - bandW + (max.X - origin.X + bandW * 2) * eased;
                 var alpha = 0.28f * (1f - t * 0.6f);
                 var glow = Theme.Mix(Theme.GoldBright, rarityColor, 0.35f);
@@ -472,8 +673,8 @@ public class RollWindow : Window
             {
                 var flare = 0.35f * (1f - age / 1.6f);
                 dl.AddRectFilled(
-                    new Vector2(origin.X + 10f, origin.Y + winnerRowY + 1f),
-                    new Vector2(max.X - 10f, origin.Y + winnerRowY + RowHeight - 1f),
+                    new Vector2(origin.X + Theme.Px(10f), origin.Y + winnerRowY + 1f),
+                    new Vector2(max.X - Theme.Px(10f), origin.Y + winnerRowY + RowHeight - 1f),
                     Theme.U32(Theme.GoldBright, flare), 4f);
             }
 
@@ -489,23 +690,24 @@ public class RollWindow : Window
     private void SpawnWinnerParticles(WinnerBurst burst, Vector2 iconCenter, float winnerRowY, Vector4 rarityColor, float intensity)
     {
         // Sparks rise from the crown on the winner's row; fall back to the icon if the row isn't shown.
-        var source = winnerRowY >= 0 ? new Vector2(24f, winnerRowY + RowHeight * 0.5f) : iconCenter;
+        var source = winnerRowY >= 0 ? new Vector2(Theme.Px(24f), winnerRowY + RowHeight * 0.5f) : iconCenter;
         var count = (int)(26 * Math.Clamp(intensity, 0.2f, 2f));
+        var scale = Theme.Px(1f);
 
         for (var i = 0; i < count; i++)
         {
             // Mostly upward, fanned out towards the right where the card has room.
             var angle = -MathF.PI * (0.08f + 0.84f * (float)random.NextDouble());
-            var speed = 70f + 120f * (float)random.NextDouble();
+            var speed = (70f + 120f * (float)random.NextDouble()) * scale;
             var life = 0.9f + 0.8f * (float)random.NextDouble();
             var gold = random.NextDouble() < 0.6;
 
             burst.Particles.Add(new ParticleEffect
             {
-                Position = source + new Vector2((float)random.NextDouble() * 10f - 5f, (float)random.NextDouble() * 6f - 3f),
+                Position = source + new Vector2((float)random.NextDouble() * 10f - 5f, (float)random.NextDouble() * 6f - 3f) * scale,
                 Velocity = new Vector2(MathF.Cos(angle) * speed * 1.6f, MathF.Sin(angle) * speed),
                 Color = gold ? Theme.GoldBright : Theme.Lighten(rarityColor, 0.25f),
-                Size = gold ? 2.2f + 1.6f * (float)random.NextDouble() : 1.6f + 1.2f * (float)random.NextDouble(),
+                Size = (gold ? 2.2f + 1.6f * (float)random.NextDouble() : 1.6f + 1.2f * (float)random.NextDouble()) * scale,
                 Life = life,
                 MaxLife = life,
                 Type = random.NextDouble() < 0.35 ? ParticleType.Star : ParticleType.Spark,
@@ -522,7 +724,7 @@ public class RollWindow : Window
                 Position = iconCenter,
                 Velocity = Vector2.Zero,
                 Color = i == 0 ? Theme.GoldBright : rarityColor,
-                Size = 10f + i * 8f,
+                Size = (10f + i * 8f) * scale,
                 Life = life,
                 MaxLife = life,
                 Type = ParticleType.Ring,
@@ -603,10 +805,10 @@ public class RollWindow : Window
         }));
 
         var textY = origin.Y + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
-        Theme.ClipText(dl, new Vector2(origin.X + 22f, textY), width - 40f, summary, Theme.U32(Theme.TextMuted));
+        Theme.ClipText(dl, new Vector2(origin.X + Theme.Px(22f), textY), width - Theme.Px(40f), summary, Theme.U32(Theme.TextMuted));
 
-        ImGui.SetCursorScreenPos(new Vector2(origin.X + 12f, origin.Y));
-        ImGui.Dummy(new Vector2(width - 24f, RowHeight));
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + Theme.Px(12f), origin.Y));
+        ImGui.Dummy(new Vector2(width - Theme.Px(24f), RowHeight));
         if (ImGui.IsItemHovered())
             Theme.Tooltip(string.Join("\n", groups.Select(g => $"{g.Key}: {string.Join(", ", g.Select(r => r.PlayerName))}")));
     }
@@ -621,19 +823,19 @@ public class RollWindow : Window
     /// </summary>
     private static void DrawStakeRow(ImDrawListPtr dl, Vector2 origin, float width, List<Services.RollInfo> atStake)
     {
-        var min = new Vector2(origin.X + 12f, origin.Y + 1f);
-        var max = new Vector2(origin.X + width - 12f, origin.Y + RowHeight - 2f);
+        var min = new Vector2(origin.X + Theme.Px(12f), origin.Y + 1f);
+        var max = new Vector2(origin.X + width - Theme.Px(12f), origin.Y + RowHeight - 2f);
         dl.AddRectFilled(min, max, Theme.U32(Theme.Warn, 0.10f), 4f);
 
         var textY = origin.Y + (RowHeight - ImGui.GetTextLineHeight()) * 0.5f;
         using (ImRaii.PushFont(UiBuilder.IconFont))
         {
-            dl.AddText(new Vector2(origin.X + 20f, textY + 1f), Theme.U32(Theme.Warn),
+            dl.AddText(new Vector2(origin.X + Theme.Px(20f), textY + 1f), Theme.U32(Theme.Warn),
                 FontAwesomeIcon.ExclamationTriangle.ToIconString());
         }
 
         var names = string.Join(", ", atStake.Select(r => r.ItemName));
-        Theme.ClipText(dl, new Vector2(origin.X + 40f, textY), width - 58f,
+        Theme.ClipText(dl, new Vector2(origin.X + Theme.Px(40f), textY), width - Theme.Px(58f),
             $"Also rolling on {names}", Theme.U32(Theme.Warn));
 
         ImGui.SetCursorScreenPos(min);
@@ -652,13 +854,13 @@ public class RollWindow : Window
     /// Choices the game won't accept from you are greyed out, and the bar gives way to a note
     /// while a click is in flight.
     /// </summary>
-    private void DrawActionBar(ImDrawListPtr dl, Services.RollInfo rollInfo, float left, float y, float width,
+    private void DrawActionBar(ImDrawListPtr dl, Services.RollInfo rollInfo, bool preview, float left, float y, float width,
         List<Services.RollInfo> atStake)
     {
         var tracker = plugin.LootTracker;
 
         dl.AddLine(new Vector2(left, y), new Vector2(left + width, y), Theme.U32(Theme.Line, 0.7f), 1f);
-        y += 7f;
+        y += Theme.Px(7f);
 
         if (Services.LootTrackingService.IsRollPending(rollInfo))
         {
@@ -666,12 +868,12 @@ public class RollWindow : Window
             var ns = ImGui.CalcTextSize(note);
             var center = left + width * 0.5f;
             dl.AddRectFilled(new Vector2(left, y), new Vector2(left + width, y + ActionButtonHeight), Theme.U32(Theme.Gold, 0.08f), Theme.Radius);
-            Theme.DrawSpinner(dl, new Vector2(center - ns.X * 0.5f - 12f, y + ActionButtonHeight * 0.5f), 5f, 1.6f, Theme.Gold);
-            dl.AddText(new Vector2(center - ns.X * 0.5f + 2f, y + (ActionButtonHeight - ns.Y) * 0.5f), Theme.U32(Theme.GoldBright), note);
+            Theme.DrawSpinner(dl, new Vector2(center - ns.X * 0.5f - Theme.Px(12f), y + ActionButtonHeight * 0.5f), Theme.Px(5f), 1.6f, Theme.Gold);
+            dl.AddText(new Vector2(center - ns.X * 0.5f + Theme.Px(2f), y + (ActionButtonHeight - ns.Y) * 0.5f), Theme.U32(Theme.GoldBright), note);
             return;
         }
 
-        var options = tracker.GetRollOptions(rollInfo);
+        var options = OptionsFor(rollInfo, preview);
 
         (Services.RollChoice Choice, FontAwesomeIcon Icon, bool Allowed, Vector4 Color, string? Blocked)[] buttons =
         [
@@ -680,7 +882,7 @@ public class RollWindow : Window
             (Services.RollChoice.Pass, FontAwesomeIcon.Times, options.CanPass, Theme.Bad, null),
         ];
 
-        const float gap = 6f;
+        var gap = Theme.Px(6f);
         var buttonWidth = (width - gap * (buttons.Length - 1)) / buttons.Length;
 
         for (var i = 0; i < buttons.Length; i++)
@@ -717,8 +919,15 @@ public class RollWindow : Window
                     Theme.Tooltip(text);
                 }
 
-                if (clicked)
+                if (clicked && preview)
+                {
+                    rollInfo.PendingChoice = choice;
+                    rollInfo.PendingSince = DateTime.Now;
+                }
+                else if (clicked)
+                {
                     tracker.Roll(rollInfo, choice);
+                }
             }
             else
             {
@@ -740,15 +949,27 @@ public class RollWindow : Window
             }
 
             var ls = ImGui.CalcTextSize(label);
-            var contentX = min.X + (buttonWidth - glyphWidth - 6f - ls.X) * 0.5f;
+            var glyphGap = Theme.Px(6f);
+            var contentX = min.X + (buttonWidth - glyphWidth - glyphGap - ls.X) * 0.5f;
             var textY = min.Y + (ActionButtonHeight - ls.Y) * 0.5f;
 
             using (ImRaii.PushFont(UiBuilder.IconFont))
             {
                 dl.AddText(new Vector2(contentX, textY + 1f), Theme.U32(textColor), glyph);
             }
-            dl.AddText(new Vector2(contentX + glyphWidth + 6f, textY), Theme.U32(textColor), label);
+            dl.AddText(new Vector2(contentX + glyphWidth + glyphGap, textY), Theme.U32(textColor), label);
         }
+    }
+
+    /// <summary>What the game accepts from you on the item; a preview item takes everything until you choose.</summary>
+    private Services.RollOptions OptionsFor(Services.RollInfo rollInfo, bool preview)
+    {
+        if (!preview)
+            return plugin.LootTracker.GetRollOptions(rollInfo);
+
+        return rollInfo.IsFinished || rollInfo.PlayerRolls.ContainsKey(LocalPlayerName)
+            ? default
+            : new Services.RollOptions(true, true, true, null);
     }
 
     private static Vector4 TimerColor(double secondsLeft) => secondsLeft switch
@@ -761,39 +982,39 @@ public class RollWindow : Window
     private static void DrawRollRow(ImDrawListPtr dl, Vector2 origin, float width, string playerName,
         string rollType, int rollValue, bool isWinner, string localPlayerName)
     {
-        var textY = origin.Y + (21f - ImGui.GetTextLineHeight()) * 0.5f;
-        var x = origin.X + 18f;
+        var rowHeight = RowHeight;
+        var textY = origin.Y + (rowHeight - ImGui.GetTextLineHeight()) * 0.5f;
+        var x = origin.X + Theme.Px(18f);
 
         if (isWinner)
         {
             // Winners get a soft brass band behind the whole row.
             dl.AddRectFilled(
-                new Vector2(origin.X + 10f, origin.Y + 1f),
-                new Vector2(origin.X + width - 10f, origin.Y + 20f),
+                new Vector2(origin.X + Theme.Px(10f), origin.Y + 1f),
+                new Vector2(origin.X + width - Theme.Px(10f), origin.Y + rowHeight - 1f),
                 Theme.U32(Theme.Gold, 0.13f), 4f);
 
             using (ImRaii.PushFont(UiBuilder.IconFont))
             {
                 var glyph = FontAwesomeIcon.Crown.ToIconString();
                 dl.AddText(new Vector2(x, textY), Theme.U32(Theme.GoldBright), glyph);
-                x += ImGui.CalcTextSize(glyph).X + 7f;
+                x += ImGui.CalcTextSize(glyph).X + Theme.Px(7f);
             }
         }
         else
         {
-            x += 4f;
+            x += Theme.Px(4f);
         }
 
         var isLocalPlayer = playerName.Equals(localPlayerName, StringComparison.OrdinalIgnoreCase) ||
                             playerName.StartsWith(localPlayerName, StringComparison.OrdinalIgnoreCase);
         var playerColor = isLocalPlayer ? Theme.Good : Services.RollKind.IsRoll(rollType) ? Theme.Text : Theme.TextMuted;
-        dl.AddText(new Vector2(x, textY), Theme.U32(playerColor), playerName);
 
         // Roll type pill and value, right aligned. Passes and non-rolls have no value.
         var isRoll = Services.RollKind.IsRoll(rollType);
         var valueText = !isRoll ? "-" : rollValue == Services.RollKind.PendingValue ? "..." : rollValue.ToString();
         var vw = ImGui.CalcTextSize(valueText).X;
-        var valueX = origin.X + width - 18f - vw;
+        var valueX = origin.X + width - Theme.Px(18f) - vw;
         dl.AddText(new Vector2(valueX, textY), Theme.U32(isWinner ? Theme.GoldBright : isRoll ? Theme.Text : Theme.TextFaint), valueText);
 
         var rollColor = rollType switch
@@ -805,12 +1026,16 @@ public class RollWindow : Window
             _ => Theme.TextMuted,
         };
         var ts = ImGui.CalcTextSize(rollType);
-        var pillMax = new Vector2(valueX - 8f, origin.Y + 3.5f);
-        var pillMin = new Vector2(pillMax.X - ts.X - 12f, pillMax.Y);
-        var pillBottom = new Vector2(pillMax.X, origin.Y + 17.5f);
+        var pillPad = Theme.Px(6f);
+        var pillRight = valueX - Theme.Px(8f);
+        var pillMin = new Vector2(pillRight - ts.X - pillPad * 2, origin.Y + Theme.Px(3.5f));
+        var pillMax = new Vector2(pillRight, origin.Y + rowHeight - Theme.Px(3.5f));
 
-        dl.AddRectFilled(pillMin, pillBottom, Theme.U32(rollColor, 0.16f), 7f);
-        dl.AddText(new Vector2(pillMin.X + 6f, textY), Theme.U32(rollColor), rollType);
+        // The player's name gives way to the pill rather than running under it.
+        Theme.ClipText(dl, new Vector2(x, textY), pillMin.X - Theme.Px(6f) - x, playerName, Theme.U32(playerColor));
+
+        dl.AddRectFilled(pillMin, pillMax, Theme.U32(rollColor, 0.16f), (pillMax.Y - pillMin.Y) * 0.5f);
+        dl.AddText(new Vector2(pillMin.X + pillPad, textY), Theme.U32(rollColor), rollType);
     }
 
     public override void Dispose()

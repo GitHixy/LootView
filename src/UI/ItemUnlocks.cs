@@ -73,13 +73,14 @@ public static class ItemUnlocks
 
     /// <summary>
     /// A small seal on the bottom-right corner of an item icon: a check when you already have
-    /// it, a gold star when you don't.
+    /// it, a gold star when you don't. <paramref name="size"/> is given at 100% and scaled here.
     /// </summary>
     public static void DrawIconSeal(ImDrawListPtr dl, Vector2 iconMax, UnlockStatus status, float size = 13f)
     {
         if (Describe(status) is not { } seal)
             return;
 
+        size = Theme.Px(size);
         var center = iconMax - new Vector2(size * 0.3f, size * 0.3f);
         var radius = size * 0.5f;
 

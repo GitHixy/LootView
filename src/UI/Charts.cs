@@ -16,9 +16,11 @@ public static class Charts
     /// <summary>
     /// A column chart with a baseline, hover highlight and optional rotated-free labels.
     /// Labels are drawn only when they fit; otherwise every n-th one is kept.
+    /// <paramref name="height"/> is given at 100% and scaled here, like every size passed to these charts.
     /// </summary>
     public static void Columns(string id, IReadOnlyList<Bar> data, float height, Vector4 color, bool showLabels = true)
     {
+        height = Theme.Px(height);
         if (data.Count == 0)
         {
             ImGui.TextColored(Theme.TextFaint, "No data for this range");
@@ -28,7 +30,7 @@ public static class Charts
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var width = Math.Max(ImGui.GetContentRegionAvail().X, 8f);
-        var labelHeight = showLabels ? ImGui.GetTextLineHeight() + 4f : 0f;
+        var labelHeight = showLabels ? ImGui.GetTextLineHeight() + Theme.Px(4f) : 0f;
         var plotHeight = height - labelHeight;
 
         var max = 0d;
@@ -41,7 +43,7 @@ public static class Charts
         var mouse = ImGui.GetIO().MousePos;
 
         var slot = width / data.Count;
-        var barWidth = Math.Max(Math.Min(slot - 3f, 34f), 2f);
+        var barWidth = Math.Max(Math.Min(slot - Theme.Px(3f), Theme.Px(34f)), 2f);
         var hoverIndex = -1;
 
         if (hovered)
@@ -82,8 +84,8 @@ public static class Charts
             if (isHover)
             {
                 dl.AddRectFilled(
-                    new Vector2(min.X - 2, origin.Y),
-                    new Vector2(maxPt.X + 2, origin.Y + plotHeight),
+                    new Vector2(min.X - Theme.Px(2), origin.Y),
+                    new Vector2(maxPt.X + Theme.Px(2), origin.Y + plotHeight),
                     Theme.U32(color, 0.10f), 3f);
             }
         }
@@ -97,14 +99,14 @@ public static class Charts
         if (showLabels)
         {
             // Keep every n-th label so they never collide.
-            var sample = ImGui.CalcTextSize(data[0].Label).X + 8f;
+            var sample = ImGui.CalcTextSize(data[0].Label).X + Theme.Px(8f);
             var step = Math.Max((int)Math.Ceiling(sample / slot), 1);
 
             for (var i = 0; i < data.Count; i += step)
             {
                 var ts = ImGui.CalcTextSize(data[i].Label);
                 var cx = origin.X + slot * i + slot * 0.5f;
-                dl.AddText(new Vector2(cx - ts.X * 0.5f, origin.Y + plotHeight + 4f),
+                dl.AddText(new Vector2(cx - ts.X * 0.5f, origin.Y + plotHeight + Theme.Px(4f)),
                     Theme.U32(i == hoverIndex ? Theme.Text : Theme.TextFaint), data[i].Label);
             }
         }
@@ -121,10 +123,12 @@ public static class Charts
     /// </summary>
     public static void RankedBar(string label, double value, double max, Vector4 color, float labelWidth, string? valueText = null)
     {
+        labelWidth = Theme.Px(labelWidth);
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var width = Math.Max(ImGui.GetContentRegionAvail().X, 8f);
-        var height = ImGui.GetTextLineHeight() + 6f;
+        var height = ImGui.GetTextLineHeight() + Theme.Px(6f);
+        var inset = Theme.Px(3f);
 
         ImGui.InvisibleButton($"##rank_{label}", new Vector2(width, height));
         var hovered = ImGui.IsItemHovered();
@@ -133,26 +137,26 @@ public static class Charts
 
         var trackX = origin.X + labelWidth;
         var suffix = valueText ?? value.ToString("N0");
-        var suffixWidth = ImGui.CalcTextSize(suffix).X + 10f;
-        var trackWidth = Math.Max(width - labelWidth - suffixWidth, 20f);
+        var suffixWidth = ImGui.CalcTextSize(suffix).X + Theme.Px(10f);
+        var trackWidth = Math.Max(width - labelWidth - suffixWidth, Theme.Px(20f));
 
         dl.AddRectFilled(
-            new Vector2(trackX, origin.Y + 3),
-            new Vector2(trackX + trackWidth, origin.Y + height - 3),
+            new Vector2(trackX, origin.Y + inset),
+            new Vector2(trackX + trackWidth, origin.Y + height - inset),
             Theme.U32(Theme.Panel, 0.85f), 3f);
 
         var frac = max > 0 ? (float)Math.Clamp(value / max, 0, 1) : 0f;
         if (frac > 0.001f)
         {
-            var fillMax = new Vector2(trackX + Math.Max(trackWidth * frac, 3f), origin.Y + height - 3);
+            var fillMax = new Vector2(trackX + Math.Max(trackWidth * frac, inset), origin.Y + height - inset);
             dl.AddRectFilledMultiColor(
-                new Vector2(trackX, origin.Y + 3), fillMax,
+                new Vector2(trackX, origin.Y + inset), fillMax,
                 Theme.U32(color, hovered ? 0.85f : 0.6f), Theme.U32(Theme.Lighten(color, 0.3f), hovered ? 1f : 0.9f),
                 Theme.U32(Theme.Lighten(color, 0.3f), hovered ? 1f : 0.9f), Theme.U32(color, hovered ? 0.85f : 0.6f));
         }
 
         // Label sits over the track start, value is pinned to the right.
-        Theme.ClipText(dl, new Vector2(origin.X, textY), labelWidth - 8f, label,
+        Theme.ClipText(dl, new Vector2(origin.X, textY), labelWidth - Theme.Px(8f), label,
             Theme.U32(hovered ? Theme.Text : Theme.TextMuted));
 
         dl.AddText(new Vector2(origin.X + width - ImGui.CalcTextSize(suffix).X, textY),
@@ -164,10 +168,12 @@ public static class Charts
     {
         if (blocks.Count == 0) return;
 
+        height = Theme.Px(height);
+
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var width = Math.Max(ImGui.GetContentRegionAvail().X, 8f);
-        var gap = 5f;
+        var gap = Theme.Px(5f);
         var cell = (width - gap * (blocks.Count - 1)) / blocks.Count;
 
         var max = 0d;
@@ -192,11 +198,11 @@ public static class Charts
             dl.AddRect(min, maxPt, Theme.U32(color, i == hoverIndex ? 0.8f : 0.2f), Theme.Radius, ImDrawFlags.None, 1f);
 
             var ts = ImGui.CalcTextSize(label);
-            dl.AddText(new Vector2(min.X + (cell - ts.X) * 0.5f, min.Y + 8f), Theme.U32(Theme.TextMuted), label);
+            dl.AddText(new Vector2(min.X + (cell - ts.X) * 0.5f, min.Y + Theme.Px(8f)), Theme.U32(Theme.TextMuted), label);
 
             var v = value.ToString("N0");
             var vs = ImGui.CalcTextSize(v);
-            dl.AddText(new Vector2(min.X + (cell - vs.X) * 0.5f, maxPt.Y - vs.Y - 8f),
+            dl.AddText(new Vector2(min.X + (cell - vs.X) * 0.5f, maxPt.Y - vs.Y - Theme.Px(8f)),
                 Theme.U32(intensity > 0.5f ? Theme.Lighten(color, 0.5f) : Theme.Text), v);
         }
 
@@ -210,6 +216,7 @@ public static class Charts
     /// <summary>A donut showing how a total splits across categories.</summary>
     public static void Donut(IReadOnlyList<(string Label, double Value, Vector4 Color)> slices, float radius, string? centerLabel = null, string? centerValue = null)
     {
+        radius = Theme.Px(radius);
         var dl = ImGui.GetWindowDrawList();
         var origin = ImGui.GetCursorScreenPos();
         var size = radius * 2;
@@ -249,7 +256,7 @@ public static class Charts
 
         if (total <= 0)
         {
-            dl.AddCircle(center, radius * 0.85f, Theme.U32(Theme.Line), 48, 8f);
+            dl.AddCircle(center, radius * 0.85f, Theme.U32(Theme.Line), 48, Theme.Px(8f));
         }
         else
         {
@@ -259,7 +266,7 @@ public static class Charts
                 var sweep = (float)(slices[i].Value / total) * MathF.PI * 2;
                 if (sweep <= 0.0001f) continue;
 
-                var r = i == hoverIndex ? radius + 3f : radius;
+                var r = i == hoverIndex ? radius + Theme.Px(3f) : radius;
                 var thickness = r - inner;
 
                 dl.PathClear();
@@ -274,13 +281,13 @@ public static class Charts
         {
             using var s = new Theme.FontScale(1.25f);
             var ts = ImGui.CalcTextSize(centerValue);
-            dl.AddText(new Vector2(center.X - ts.X * 0.5f, center.Y - ts.Y * 0.5f - 4), Theme.U32(Theme.Text), centerValue);
+            dl.AddText(new Vector2(center.X - ts.X * 0.5f, center.Y - ts.Y * 0.5f - Theme.Px(4)), Theme.U32(Theme.Text), centerValue);
         }
 
         if (centerLabel is not null)
         {
             var ts = ImGui.CalcTextSize(centerLabel);
-            dl.AddText(new Vector2(center.X - ts.X * 0.5f, center.Y + 8), Theme.U32(Theme.TextFaint), centerLabel);
+            dl.AddText(new Vector2(center.X - ts.X * 0.5f, center.Y + Theme.Px(8)), Theme.U32(Theme.TextFaint), centerLabel);
         }
 
         if (hoverIndex >= 0)

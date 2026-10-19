@@ -160,7 +160,7 @@ public partial class LootTrackingService : IDisposable
             var expired = activeRolls.RemoveAll(r => r.FinishedAt is { } at && now - at >= keep);
             if (expired > 0)
             {
-                Plugin.Log.Info($"Removed {expired} resolved roll session(s) after {keep.TotalSeconds:F0}s");
+                Plugin.Log.Debug($"Removed {expired} resolved roll session(s) after {keep.TotalSeconds:F0}s");
                 RollsUpdated?.Invoke();
             }
         }
@@ -235,7 +235,7 @@ public partial class LootTrackingService : IDisposable
             // Always log fishing messages for debugging
             if (messageText.Contains("You land"))
             {
-                Plugin.Log.Info($"Detected fishing-like message [{type}]: {messageText}");
+                Plugin.Log.Debug($"Detected fishing-like message [{type}]: {messageText}");
             }
             
             // Detect loot messages:
@@ -518,7 +518,7 @@ public partial class LootTrackingService : IDisposable
                 
                 if (itemData.HasValue)
                 {
-                    Plugin.Log.Info("Item found by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                    Plugin.Log.Debug("Item found by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
                         itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
                 }
                 else
@@ -679,7 +679,7 @@ public partial class LootTrackingService : IDisposable
                 
                 if (itemData.HasValue)
                 {
-                    Plugin.Log.Info("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                    Plugin.Log.Debug("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
                         itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
                 }
                 else
@@ -789,7 +789,7 @@ public partial class LootTrackingService : IDisposable
                 
                 if (itemData.HasValue)
                 {
-                    Plugin.Log.Info("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
+                    Plugin.Log.Debug("Found item by name: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", 
                         itemData.Value.ItemId, itemData.Value.IconId, itemData.Value.Name, itemData.Value.Rarity);
                 }
                 else
@@ -829,7 +829,7 @@ public partial class LootTrackingService : IDisposable
     {
         try
         {
-            Plugin.Log.Info($"Processing fishing message: {messageText}");
+            Plugin.Log.Debug($"Processing fishing message: {messageText}");
             
             var localPlayer = Plugin.ObjectTable.LocalPlayer;
             if (localPlayer == null) return;
@@ -842,14 +842,14 @@ public partial class LootTrackingService : IDisposable
             uint? rarityFromPayload = null;
             
             // Log all payloads for debugging
-            Plugin.Log.Info($"Fishing message has {message.Payloads.Count} payloads");
+            Plugin.Log.Debug($"Fishing message has {message.Payloads.Count} payloads");
             foreach (var payload in message.Payloads)
             {
-                Plugin.Log.Info($"Payload type: {payload.GetType().Name}");
+                Plugin.Log.Debug($"Payload type: {payload.GetType().Name}");
                 if (payload is Dalamud.Game.Text.SeStringHandling.Payloads.ItemPayload itemPayload)
                 {
                     itemIdFromPayload = itemPayload.ItemId;
-                    Plugin.Log.Info($"Found item payload (fishing): ID={itemPayload.ItemId}");
+                    Plugin.Log.Debug($"Found item payload (fishing): ID={itemPayload.ItemId}");
                     
                     // Get item data from Lumina using the ID
                     var itemData = GetItemDataById(itemPayload.ItemId);
@@ -858,7 +858,7 @@ public partial class LootTrackingService : IDisposable
                         itemNameFromPayload = itemData.Value.Name;
                         iconIdFromPayload = itemData.Value.IconId;
                         rarityFromPayload = itemData.Value.Rarity;
-                        Plugin.Log.Info($"Got item data from Lumina: Name={itemNameFromPayload}, Icon={iconIdFromPayload}, Rarity={rarityFromPayload}");
+                        Plugin.Log.Debug($"Got item data from Lumina: Name={itemNameFromPayload}, Icon={iconIdFromPayload}, Rarity={rarityFromPayload}");
                     }
                     break;
                 }
@@ -932,7 +932,7 @@ public partial class LootTrackingService : IDisposable
                 // Apply additional cleaning
                 extractedName = CleanItemName(extractedName);
                 
-                Plugin.Log.Info($"Extracted item name from text: {extractedName}");
+                Plugin.Log.Debug($"Extracted item name from text: {extractedName}");
                 
                 // Try to find item ID from Lumina
                 var itemData = FindItemByName(extractedName);
@@ -942,7 +942,7 @@ public partial class LootTrackingService : IDisposable
                     itemNameFromPayload = itemData.Value.Name;
                     iconIdFromPayload = itemData.Value.IconId;
                     rarityFromPayload = itemData.Value.Rarity;
-                    Plugin.Log.Info($"Found item in Lumina: ID={itemIdFromPayload}, Name={itemNameFromPayload}, Icon={iconIdFromPayload}");
+                    Plugin.Log.Debug($"Found item in Lumina: ID={itemIdFromPayload}, Name={itemNameFromPayload}, Icon={iconIdFromPayload}");
                 }
                 else
                 {
@@ -976,7 +976,7 @@ public partial class LootTrackingService : IDisposable
             {
                 var ilmsValue = messageText.Substring(measuringIdx + 11, ilmsIdx - (measuringIdx + 11)).Trim();
                 itemName = $"{itemName} [{ilmsValue} ilms]";
-                Plugin.Log.Info($"Added ilms to fish name: {itemName}");
+                Plugin.Log.Debug($"Added ilms to fish name: {itemName}");
             }
 
             var lootItem = new LootItem
@@ -1083,7 +1083,7 @@ public partial class LootTrackingService : IDisposable
             {
                 var iconId = item.Icon;
                 var itemName = item.Name.ExtractText();
-                Plugin.Log.Info("Found item: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", item.RowId, iconId, itemName, item.Rarity);
+                Plugin.Log.Debug("Found item: ID={ItemId}, Icon={IconId}, Name={Name}, Rarity={Rarity}", item.RowId, iconId, itemName, item.Rarity);
                 return (item.RowId, iconId, item.Rarity, itemName);
             }
             
@@ -1170,7 +1170,7 @@ public partial class LootTrackingService : IDisposable
             var itemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>();
             if (itemSheet == null) return null;
             
-            Plugin.Log.Info("Searching for item: '{ItemName}'", itemName);
+            Plugin.Log.Debug("Searching for item: '{ItemName}'", itemName);
             
             // Search for item by name (case insensitive)
             var searchName = itemName.ToLower();
@@ -1181,7 +1181,7 @@ public partial class LootTrackingService : IDisposable
                 var itemNameStr = item.Name.ExtractText();
                 if (itemNameStr.Equals(searchName, StringComparison.OrdinalIgnoreCase))
                 {
-                    Plugin.Log.Info("Found item (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                    Plugin.Log.Debug("Found item (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                     return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                 }
             }
@@ -1193,13 +1193,13 @@ public partial class LootTrackingService : IDisposable
             {
                 // Try without "the " prefix
                 alternateSearch = searchName.Substring(4);
-                Plugin.Log.Info("Trying without 'the' prefix: '{AlternateName}'", alternateSearch);
+                Plugin.Log.Debug("Trying without 'the' prefix: '{AlternateName}'", alternateSearch);
                 foreach (var item in itemSheet)
                 {
                     var itemNameStr = item.Name.ExtractText();
                     if (itemNameStr.Equals(alternateSearch, StringComparison.OrdinalIgnoreCase))
                     {
-                        Plugin.Log.Info("Found item (without 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        Plugin.Log.Debug("Found item (without 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                         return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                     }
                 }
@@ -1208,13 +1208,13 @@ public partial class LootTrackingService : IDisposable
             {
                 // Try with "the " prefix
                 alternateSearch = "the " + searchName;
-                Plugin.Log.Info("Trying with 'the' prefix: '{AlternateName}'", alternateSearch);
+                Plugin.Log.Debug("Trying with 'the' prefix: '{AlternateName}'", alternateSearch);
                 foreach (var item in itemSheet)
                 {
                     var itemNameStr = item.Name.ExtractText();
                     if (itemNameStr.Equals(alternateSearch, StringComparison.OrdinalIgnoreCase))
                     {
-                        Plugin.Log.Info("Found item (with 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        Plugin.Log.Debug("Found item (with 'the'): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                         return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                     }
                 }
@@ -1258,13 +1258,13 @@ public partial class LootTrackingService : IDisposable
             
             foreach (var singularName in singularForms)
             {
-                Plugin.Log.Info("Trying singular form: '{SingularName}'", singularName);
+                Plugin.Log.Debug("Trying singular form: '{SingularName}'", singularName);
                 foreach (var item in itemSheet)
                 {
                     var itemNameStr = item.Name.ExtractText();
                     if (itemNameStr.Equals(singularName, StringComparison.OrdinalIgnoreCase))
                     {
-                        Plugin.Log.Info("Found item (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        Plugin.Log.Debug("Found item (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                         return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                     }
                 }
@@ -1274,13 +1274,13 @@ public partial class LootTrackingService : IDisposable
             var eventItemSheet = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.EventItem>();
             if (eventItemSheet != null)
             {
-                Plugin.Log.Info("Searching EventItem sheet...");
+                Plugin.Log.Debug("Searching EventItem sheet...");
                 foreach (var item in eventItemSheet)
                 {
                     var itemNameStr = item.Name.ExtractText();
                     if (itemNameStr.Equals(searchName, StringComparison.OrdinalIgnoreCase))
                     {
-                        Plugin.Log.Info("Found EventItem (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                        Plugin.Log.Debug("Found EventItem (exact): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                         return (item.RowId, item.Icon, 1, itemNameStr);
                     }
                 }
@@ -1295,7 +1295,7 @@ public partial class LootTrackingService : IDisposable
                         var itemNameStr = item.Name.ExtractText();
                         if (itemNameStr.Equals(singularName, StringComparison.OrdinalIgnoreCase))
                         {
-                            Plugin.Log.Info("Found EventItem (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                            Plugin.Log.Debug("Found EventItem (singular): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                             return (item.RowId, item.Icon, 1, itemNameStr);
                         }
                     }
@@ -1309,7 +1309,7 @@ public partial class LootTrackingService : IDisposable
                 if (!string.IsNullOrWhiteSpace(itemNameStr) && 
                     itemNameStr.Contains(searchName, StringComparison.OrdinalIgnoreCase))
                 {
-                    Plugin.Log.Info("Found item (partial): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
+                    Plugin.Log.Debug("Found item (partial): ID={ItemId}, Icon={IconId}, Name={Name}", item.RowId, item.Icon, itemNameStr);
                     return (item.RowId, item.Icon, item.Rarity, itemNameStr);
                 }
             }
@@ -1640,7 +1640,7 @@ public partial class LootTrackingService : IDisposable
                     };
                     
                     AddLootItem(lootItem);
-                    Plugin.Log.Info($"[Extraction] Found item from payload: ID={itemDataFromPayload.Value.ItemId}, Name={itemDataFromPayload.Value.Name}");
+                    Plugin.Log.Debug($"[Extraction] Found item from payload: ID={itemDataFromPayload.Value.ItemId}, Name={itemDataFromPayload.Value.Name}");
                     return;
                 }
             }
@@ -1715,7 +1715,7 @@ public partial class LootTrackingService : IDisposable
                 };
                 
                 AddLootItem(lootItem);
-                Plugin.Log.Info($"[Extraction] Found item by name: ID={itemData.Value.ItemId}, Icon={itemData.Value.IconId}, Name={itemData.Value.Name}, Rarity={itemData.Value.Rarity}");
+                Plugin.Log.Debug($"[Extraction] Found item by name: ID={itemData.Value.ItemId}, Icon={itemData.Value.IconId}, Name={itemData.Value.Name}, Rarity={itemData.Value.Rarity}");
             }
             else
             {
@@ -1815,7 +1815,7 @@ public partial class LootTrackingService : IDisposable
                 };
                 
                 AddLootItem(lootItem);
-                Plugin.Log.Info($"[Exchange] Found item: ID={itemData.Value.ItemId}, Name={itemData.Value.Name}, Qty={quantity}");
+                Plugin.Log.Debug($"[Exchange] Found item: ID={itemData.Value.ItemId}, Name={itemData.Value.Name}, Qty={quantity}");
             }
             else
             {
@@ -1893,7 +1893,7 @@ public partial class LootTrackingService : IDisposable
         // This marks the start of a roll session for an item
         try
         {
-            Plugin.Log.Info($"Processing loot list added: {messageText}");
+            Plugin.Log.Debug($"Processing loot list added: {messageText}");
             
             // Extract item from payload
             uint? itemIdFromPayload = null;
@@ -1905,7 +1905,7 @@ public partial class LootTrackingService : IDisposable
                 {
                     itemIdFromPayload = itemPayload.ItemId;
                     itemNameFromPayload = itemPayload.DisplayName;
-                    Plugin.Log.Info($"Found item payload in loot list: {itemNameFromPayload} (ID: {itemIdFromPayload})");
+                    Plugin.Log.Debug($"Found item payload in loot list: {itemNameFromPayload} (ID: {itemIdFromPayload})");
                     break;
                 }
             }
@@ -1921,7 +1921,7 @@ public partial class LootTrackingService : IDisposable
                 if (match.Success)
                 {
                     itemNameFromPayload = match.Groups[1].Value;
-                    Plugin.Log.Info($"Extracted item from text: {itemNameFromPayload}");
+                    Plugin.Log.Debug($"Extracted item from text: {itemNameFromPayload}");
                 }
             }
 

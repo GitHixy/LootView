@@ -120,7 +120,7 @@ public class LootTableService : IDisposable
     public LootTableService()
     {
         httpClient.DefaultRequestHeaders.Add("User-Agent", "LootView-FFXIV-Plugin/1.1.0");
-        Plugin.Log.Info("LootTableService initialized with API support");
+        Plugin.Log.Debug("LootTableService initialized with API support");
     }
 
     /// <summary>
@@ -268,9 +268,9 @@ public class LootTableService : IDisposable
 
             lootTable.ZoneName = GetZoneName(territory);
             
-            Plugin.Log.Info($"Territory {territoryId} - {lootTable.ZoneName}");
-            Plugin.Log.Info($"  ContentFinderCondition ID: {territory.ContentFinderCondition.RowId}");
-            Plugin.Log.Info($"  TerritoryIntendedUse: {territory.TerritoryIntendedUse}");
+            Plugin.Log.Debug($"Territory {territoryId} - {lootTable.ZoneName}");
+            Plugin.Log.Debug($"  ContentFinderCondition ID: {territory.ContentFinderCondition.RowId}");
+            Plugin.Log.Debug($"  TerritoryIntendedUse: {territory.TerritoryIntendedUse}");
 
             // Try to get content finder condition for duties
             if (territory.ContentFinderCondition.RowId > 0)
@@ -279,11 +279,11 @@ public class LootTableService : IDisposable
                 if (cfcSheet != null && cfcSheet.TryGetRow(territory.ContentFinderCondition.RowId, out var cfc))
                 {
                     lootTable.ContentFinderConditionId = cfc.RowId;
-                    Plugin.Log.Info($"Found ContentFinderCondition {cfc.RowId} for {lootTable.ZoneName}");
-                    Plugin.Log.Info($"  CFC Name: {cfc.Name}");
-                    Plugin.Log.Info($"  Content RowId: {cfc.Content.RowId}");
-                    Plugin.Log.Info($"  Item Level: {cfc.ItemLevelRequired}");
-                    Plugin.Log.Info($"  Content Type: {cfc.ContentType.RowId}");
+                    Plugin.Log.Debug($"Found ContentFinderCondition {cfc.RowId} for {lootTable.ZoneName}");
+                    Plugin.Log.Debug($"  CFC Name: {cfc.Name}");
+                    Plugin.Log.Debug($"  Content RowId: {cfc.Content.RowId}");
+                    Plugin.Log.Debug($"  Item Level: {cfc.ItemLevelRequired}");
+                    Plugin.Log.Debug($"  Content Type: {cfc.ContentType.RowId}");
                     
                     // Try to fetch from API
                     await FetchLootFromAPIAsync(cfc, lootTable);
@@ -295,7 +295,7 @@ public class LootTableService : IDisposable
             }
             else
             {
-                Plugin.Log.Info("Territory has no ContentFinderCondition (likely overworld zone)");
+                Plugin.Log.Debug("Territory has no ContentFinderCondition (likely overworld zone)");
             }
 
             // If no items found, provide fallback info
@@ -326,16 +326,16 @@ public class LootTableService : IDisposable
         try
         {
             var instanceId = cfc.Content.RowId;
-            Plugin.Log.Info($"Fetching loot data for ContentFinder {cfc.RowId}, Instance {instanceId}, iLevel {cfc.ItemLevelRequired}");
+            Plugin.Log.Debug($"Fetching loot data for ContentFinder {cfc.RowId}, Instance {instanceId}, iLevel {cfc.ItemLevelRequired}");
             
             if (instanceId > 0)
             {
                 // Correct Garland Tools API endpoint: /db/doc/instance/{lang}/{api_version}/{instance_id}.json
                 var url = $"https://www.garlandtools.org/db/doc/instance/en/2/{instanceId}.json";
-                Plugin.Log.Info($"Requesting Garland Tools: {url}");
+                Plugin.Log.Debug($"Requesting Garland Tools: {url}");
                 
                 var response = await httpClient.GetAsync(url);
-                Plugin.Log.Info($"API Response: {response.StatusCode}");
+                Plugin.Log.Debug($"API Response: {response.StatusCode}");
                 
                 if (response.IsSuccessStatusCode)
                 {
@@ -346,9 +346,9 @@ public class LootTableService : IDisposable
                     
                     if (data?.Instance != null && data.Instance.Rewards != null && data.Instance.Rewards.Count > 0)
                     {
-                        Plugin.Log.Info($"✅ Successfully parsed Garland data: {data.Instance.Name} with {data.Instance.Rewards.Count} rewards, {data.Partials.Count} partials");
+                        Plugin.Log.Debug($"✅ Successfully parsed Garland data: {data.Instance.Name} with {data.Instance.Rewards.Count} rewards, {data.Partials.Count} partials");
                         await ProcessGarlandDataAsync(data, lootTable);
-                        Plugin.Log.Info($"Successfully fetched {lootTable.Items.Count} items from Garland Tools");
+                        Plugin.Log.Debug($"Successfully fetched {lootTable.Items.Count} items from Garland Tools");
                         return;
                     }
                     else
@@ -363,11 +363,11 @@ public class LootTableService : IDisposable
             }
             else
             {
-                Plugin.Log.Info("Instance ID is 0, skipping API request");
+                Plugin.Log.Debug("Instance ID is 0, skipping API request");
             }
 
             // Fallback
-            Plugin.Log.Info("Using fallback game data");
+            Plugin.Log.Debug("Using fallback game data");
             InferItemsFromGameData(cfc, lootTable);
         }
         catch (Exception ex)
@@ -410,7 +410,7 @@ public class LootTableService : IDisposable
             }
         }
         
-        Plugin.Log.Info($"Found {bossDropItems.Count} boss drop items, {treasureCofferItems.Count} treasure coffer items");
+        Plugin.Log.Debug($"Found {bossDropItems.Count} boss drop items, {treasureCofferItems.Count} treasure coffer items");
 
         // Process all rewards from the instance
         foreach (var itemId in instance.Rewards)
@@ -444,7 +444,7 @@ public class LootTableService : IDisposable
             }
         }
 
-        Plugin.Log.Info($"Processed {lootTable.Items.Count} items from rewards list");
+        Plugin.Log.Debug($"Processed {lootTable.Items.Count} items from rewards list");
 
         // Sort by source type (bosses first, then treasure, then completion), then rarity, then name
         lootTable.Items = lootTable.Items
@@ -625,13 +625,13 @@ public class LootTableService : IDisposable
     public void ClearCache()
     {
         cachedLootTables.Clear();
-        Plugin.Log.Info("Loot table cache cleared");
+        Plugin.Log.Debug("Loot table cache cleared");
     }
 
     public void Dispose()
     {
         cachedLootTables.Clear();
         loadingTasks.Clear();
-        Plugin.Log.Info("LootTableService disposed");
+        Plugin.Log.Debug("LootTableService disposed");
     }
 }

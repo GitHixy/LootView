@@ -103,7 +103,7 @@ public class StatisticsWindow : Window
             () =>
             {
                 var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
-                ImGui.SetCursorPosX(right - 30f);
+                ImGui.SetCursorPosX(right - Theme.Px(30f));
                 if (Theme.IconButton("##RefreshStats", FontAwesomeIcon.Sync, "Recalculate statistics", Theme.Crystal))
                 {
                     InvalidateAll();
@@ -111,7 +111,7 @@ public class StatisticsWindow : Window
             });
 
         Theme.TabStrip("##StatsTabs", ref tab, Tabs);
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
 
         using var content = Theme.Region("##StatsContent", ImGui.GetContentRegionAvail());
         if (!content) return;
@@ -146,7 +146,7 @@ public class StatisticsWindow : Window
 
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, "Range");
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         if (Theme.SegmentedControl("##DateRange", ref dateRangeOption, "Today", "This week", "This month", "All time"))
         {
             UpdateDateRange();
@@ -154,29 +154,29 @@ public class StatisticsWindow : Window
 
         if (statsAsync.IsLoading)
         {
-            ImGui.SameLine(0, 12);
+            ImGui.SameLine(0, Theme.Px(12));
             DrawWorkingBadge();
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
 
         // --- Headline metrics -----------------------------------------
-        var cardWidth = (ImGui.GetContentRegionAvail().X - 30) / 4f;
+        var cardWidth = (ImGui.GetContentRegionAvail().X - Theme.Px(30)) / 4f;
         Theme.StatCard(FontAwesomeIcon.Gem, "Total items", cachedStats.TotalItems.ToString("N0"), Theme.Gold, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.Fingerprint, "Unique items", cachedStats.TotalUnique.ToString("N0"), Theme.Crystal, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.Star, "High quality", $"{cachedStats.TotalHQ:N0}", Theme.Warn, cardWidth,
             $"{cachedStats.HQPercentage:F1}% of everything in this range");
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.TachometerAlt, "Items / day", cachedStats.ItemsPerDay.ToString("F1"), Theme.Good, cardWidth);
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
 
         // --- Rarity split + streaks -----------------------------------
-        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
+        var half = (ImGui.GetContentRegionAvail().X - Theme.Px(12)) / 2f;
 
-        using (Theme.Card("##RarityPanel", new Vector2(half, 210), true, Theme.Crystal))
+        using (Theme.Card("##RarityPanel", new Vector2(half, Theme.Px(210)), true, Theme.Crystal))
         {
             Theme.SectionHeader("Rarity split", FontAwesomeIcon.Gem);
 
@@ -189,16 +189,16 @@ public class StatisticsWindow : Window
 
                 Charts.Donut(slices, 55f, "items", cachedStats.TotalItems.ToString("N0"));
 
-                ImGui.SameLine(0, 16);
+                ImGui.SameLine(0, Theme.Px(16));
                 ImGui.BeginGroup();
                 foreach (var kv in cachedStats.ByRarity.OrderByDescending(k => k.Key))
                 {
                     Theme.RarityGem(kv.Key, 9f);
-                    ImGui.SameLine(0, 6);
+                    ImGui.SameLine(0, Theme.Px(6));
                     ImGui.TextColored(Theme.RarityColor(kv.Key), Theme.RarityName(kv.Key));
-                    ImGui.SameLine(112);
+                    ImGui.SameLine(Theme.Px(112));
                     ImGui.TextColored(Theme.Text, $"{kv.Value.Count:N0}");
-                    ImGui.SameLine(168);
+                    ImGui.SameLine(Theme.Px(168));
                     ImGui.TextColored(Theme.TextFaint, $"{kv.Value.Percentage:F1}%");
                 }
                 ImGui.EndGroup();
@@ -210,9 +210,9 @@ public class StatisticsWindow : Window
 
         }
 
-        ImGui.SameLine(0, 12);
+        ImGui.SameLine(0, Theme.Px(12));
 
-        using (Theme.Card("##StreakPanel", new Vector2(half, 210), true, Theme.Gold))
+        using (Theme.Card("##StreakPanel", new Vector2(half, Theme.Px(210)), true, Theme.Gold))
         {
             Theme.SectionHeader("Play streaks", FontAwesomeIcon.Fire);
 
@@ -222,23 +222,23 @@ public class StatisticsWindow : Window
 
             if (cachedStats.LongestStreak > 0)
             {
-                ImGui.Dummy(new Vector2(0, 8));
+                ImGui.Dummy(new Vector2(0, Theme.Px(8)));
                 Theme.Meter(cachedStats.CurrentStreak / (float)Math.Max(cachedStats.LongestStreak, 1),
                     ImGui.GetContentRegionAvail().X, 8f, Theme.Gold);
             }
 
             if (cachedStats.FirstItemDate.HasValue && cachedStats.LastItemDate.HasValue)
             {
-                ImGui.Dummy(new Vector2(0, 10));
+                ImGui.Dummy(new Vector2(0, Theme.Px(10)));
                 Theme.HairLine();
-                ImGui.Dummy(new Vector2(0, 6));
+                ImGui.Dummy(new Vector2(0, Theme.Px(6)));
                 ImGui.TextColored(Theme.TextFaint, $"First item   {cachedStats.FirstItemDate.Value:yyyy-MM-dd}");
                 ImGui.TextColored(Theme.TextFaint, $"Latest item  {cachedStats.LastItemDate.Value:yyyy-MM-dd HH:mm}");
             }
 
         }
 
-        ImGui.Dummy(new Vector2(0, 12));
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
 
         // --- Top zones -------------------------------------------------
         Theme.SectionHeader("Top zones", FontAwesomeIcon.MapMarkedAlt);
@@ -258,7 +258,7 @@ public class StatisticsWindow : Window
             ImGui.TextColored(Theme.TextFaint, "No zone data available");
         }
 
-        ImGui.Dummy(new Vector2(0, 12));
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
 
         // --- Most common items ----------------------------------------
         Theme.SectionHeader("Most common items", FontAwesomeIcon.ListOl);
@@ -269,18 +269,18 @@ public class StatisticsWindow : Window
             if (table)
             {
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 80);
-                ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 60);
-                ImGui.TableSetupColumn("Last obtained", ImGuiTableColumnFlags.WidthFixed, 150);
+                ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, Theme.Px(80));
+                ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, Theme.Px(60));
+                ImGui.TableSetupColumn("Last obtained", ImGuiTableColumnFlags.WidthFixed, Theme.Px(150));
                 ImGui.TableHeadersRow();
 
                 foreach (var item in cachedStats.MostCommonItems.Take(10))
                 {
-                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(32f));
                     ImGui.TableNextColumn();
 
                     DrawItemIcon(item.IconId);
-                    ImGui.SameLine(0, 8);
+                    ImGui.SameLine(0, Theme.Px(8));
                     ImGui.AlignTextToFramePadding();
                     ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
 
@@ -306,7 +306,7 @@ public class StatisticsWindow : Window
             ImGui.TextColored(Theme.TextFaint, "No items to display");
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
     }
 
     /// <summary>"1 day" rather than "1 days".</summary>
@@ -315,9 +315,9 @@ public class StatisticsWindow : Window
     private static void MetricLine(FontAwesomeIcon icon, string label, string value, Vector4 accent)
     {
         Theme.Icon(icon, accent);
-        ImGui.SameLine(0, 9);
+        ImGui.SameLine(0, Theme.Px(9));
         ImGui.TextColored(Theme.TextMuted, label);
-        ImGui.SameLine(150);
+        ImGui.SameLine(Theme.Px(150));
         ImGui.TextColored(Theme.Text, value);
     }
 
@@ -347,35 +347,35 @@ public class StatisticsWindow : Window
 
         if (historyAsync.IsLoading)
         {
-            ImGui.SameLine(0, 10);
+            ImGui.SameLine(0, Theme.Px(10));
             DrawWorkingBadge();
         }
 
         if (totalPages > 1)
         {
-            const float navWidth = 214f;
+            var navWidth = Theme.Px(214f);
             ImGui.SameLine();
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - navWidth, 0));
 
             if (Theme.IconButton("##FirstPage", FontAwesomeIcon.AngleDoubleLeft, "First page", Theme.Crystal, false, 26f))
                 historyPage = 0;
-            ImGui.SameLine(0, 4);
+            ImGui.SameLine(0, Theme.Px(4));
             if (Theme.IconButton("##PrevPage", FontAwesomeIcon.AngleLeft, "Previous page", Theme.Crystal, false, 26f) && historyPage > 0)
                 historyPage--;
 
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextMuted, $"{historyPage + 1} / {totalPages}");
 
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             if (Theme.IconButton("##NextPage", FontAwesomeIcon.AngleRight, "Next page", Theme.Crystal, false, 26f) && historyPage < totalPages - 1)
                 historyPage++;
-            ImGui.SameLine(0, 4);
+            ImGui.SameLine(0, Theme.Px(4));
             if (Theme.IconButton("##LastPage", FontAwesomeIcon.AngleDoubleRight, "Last page", Theme.Crystal, false, 26f))
                 historyPage = totalPages - 1;
         }
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
 
         if (filteredItems.Count == 0)
         {
@@ -384,33 +384,33 @@ public class StatisticsWindow : Window
             return;
         }
 
-        var tableHeight = ImGui.GetContentRegionAvail().Y - 4;
+        var tableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(4);
         using var table = ImRaii.Table("HistoryTable", 6,
             ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
             new Vector2(0, tableHeight));
         if (!table) return;
 
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 50);
-        ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, 130);
-        ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 190);
-        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, 100);
-        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 150);
+        ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, Theme.Px(50));
+        ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthFixed, Theme.Px(130));
+        ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, Theme.Px(190));
+        ImGui.TableSetupColumn("Source", ImGuiTableColumnFlags.WidthFixed, Theme.Px(100));
+        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, Theme.Px(150));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
         foreach (var item in filteredItems.Skip(historyPage * ItemsPerPage).Take(ItemsPerPage))
         {
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(32f));
             ImGui.TableNextColumn();
 
             DrawItemIcon(item.IconId);
-            ImGui.SameLine(0, 8);
+            ImGui.SameLine(0, Theme.Px(8));
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
             if (item.IsHQ)
             {
-                ImGui.SameLine(0, 6);
+                ImGui.SameLine(0, Theme.Px(6));
                 Theme.Badge("HQ", Theme.Warn);
             }
 
@@ -440,13 +440,13 @@ public class StatisticsWindow : Window
     {
         ImGui.AlignTextToFramePadding();
         Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
-        ImGui.SameLine(0, 8);
-        ImGui.SetNextItemWidth(230);
+        ImGui.SameLine(0, Theme.Px(8));
+        ImGui.SetNextItemWidth(Theme.Px(230));
         if (ImGui.InputTextWithHint("##search", "Search item names", ref searchQuery, 100))
             historyPage = 0;
 
-        ImGui.SameLine(0, 8);
-        ImGui.SetNextItemWidth(170);
+        ImGui.SameLine(0, Theme.Px(8));
+        ImGui.SetNextItemWidth(Theme.Px(170));
         if (ImGui.BeginCombo("##rarityFilter", filterRarity == 999 ? "All rarities" : Theme.RarityName(filterRarity)))
         {
             if (ImGui.Selectable("All rarities", filterRarity == 999)) { filterRarity = 999; historyPage = 0; }
@@ -454,34 +454,34 @@ public class StatisticsWindow : Window
             foreach (uint r in (uint[])[1, 2, 3, 4, 7])
             {
                 Theme.RarityGem(r, 9f);
-                ImGui.SameLine(0, 6);
+                ImGui.SameLine(0, Theme.Px(6));
                 if (ImGui.Selectable(Theme.RarityName(r), filterRarity == r)) { filterRarity = r; historyPage = 0; }
             }
             ImGui.EndCombo();
         }
 
-        ImGui.SameLine(0, 8);
-        ImGui.SetNextItemWidth(180);
+        ImGui.SameLine(0, Theme.Px(8));
+        ImGui.SetNextItemWidth(Theme.Px(180));
         if (ImGui.InputTextWithHint("##zoneFilter", "Filter by zone", ref filterZone, 100))
             historyPage = 0;
 
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         var hq = filterHQOnly;
         if (Theme.Toggle("##HQOnly", ref hq)) { filterHQOnly = hq; historyPage = 0; }
-        ImGui.SameLine(0, 8);
+        ImGui.SameLine(0, Theme.Px(8));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(filterHQOnly ? Theme.Warn : Theme.TextMuted, "HQ only");
 
-        ImGui.SameLine(0, 22);
+        ImGui.SameLine(0, Theme.Px(22));
         var own = filterOwnLootOnly;
         if (Theme.Toggle("##OwnOnly", ref own)) { filterOwnLootOnly = own; historyPage = 0; }
-        ImGui.SameLine(0, 8);
+        ImGui.SameLine(0, Theme.Px(8));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(filterOwnLootOnly ? Theme.Good : Theme.TextMuted, "My loot only");
 
-        ImGui.SameLine(0, 22);
-        if (Theme.GhostButton("Reset filters", new Vector2(120, 0), Theme.Bad))
+        ImGui.SameLine(0, Theme.Px(22));
+        if (Theme.GhostButton("Reset filters", Theme.Px(new Vector2(120, 0)), Theme.Bad))
         {
             searchQuery = "";
             filterZone = "";
@@ -511,7 +511,7 @@ public class StatisticsWindow : Window
 
         Theme.SectionHeader("Daily activity", FontAwesomeIcon.CalendarAlt);
         ImGui.TextColored(Theme.TextFaint, "Items obtained over the last two weeks");
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
         var recentDays = cachedStats.DailyItems
             .OrderByDescending(d => d.Key)
@@ -522,10 +522,10 @@ public class StatisticsWindow : Window
 
         Charts.Columns("##DailyChart", recentDays, 150f, Theme.Gold);
 
-        ImGui.Dummy(new Vector2(0, 16));
+        ImGui.Dummy(new Vector2(0, Theme.Px(16)));
         Theme.SectionHeader("Hourly pattern", FontAwesomeIcon.Clock);
         ImGui.TextColored(Theme.TextFaint, "When during the day you tend to pick things up");
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
         var hourly = Enumerable.Range(0, 24)
             .Select(h => new Charts.Bar(
@@ -536,9 +536,9 @@ public class StatisticsWindow : Window
 
         Charts.Columns("##HourlyChart", hourly, 130f, Theme.Crystal);
 
-        ImGui.Dummy(new Vector2(0, 16));
+        ImGui.Dummy(new Vector2(0, Theme.Px(16)));
         Theme.SectionHeader("Rarest finds", FontAwesomeIcon.Award);
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         if (cachedStats.RarestItems.Any())
         {
@@ -546,23 +546,23 @@ public class StatisticsWindow : Window
             if (table)
             {
                 ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 110);
-                ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, 190);
-                ImGui.TableSetupColumn("Obtained", ImGuiTableColumnFlags.WidthFixed, 140);
+                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, Theme.Px(110));
+                ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthFixed, Theme.Px(190));
+                ImGui.TableSetupColumn("Obtained", ImGuiTableColumnFlags.WidthFixed, Theme.Px(140));
                 ImGui.TableHeadersRow();
 
                 foreach (var item in cachedStats.RarestItems.Take(15))
                 {
-                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(32f));
                     ImGui.TableNextColumn();
 
                     DrawItemIcon(item.IconId);
-                    ImGui.SameLine(0, 8);
+                    ImGui.SameLine(0, Theme.Px(8));
                     ImGui.AlignTextToFramePadding();
                     ImGui.TextColored(Theme.RarityColor(item.Rarity), item.ItemName);
                     if (item.IsHQ)
                     {
-                        ImGui.SameLine(0, 6);
+                        ImGui.SameLine(0, Theme.Px(6));
                         Theme.Badge("HQ", Theme.Warn);
                     }
 
@@ -585,7 +585,7 @@ public class StatisticsWindow : Window
             ImGui.TextColored(Theme.TextFaint, "Nothing notable yet");
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
     }
 
     // ==================================================================
@@ -596,19 +596,19 @@ public class StatisticsWindow : Window
     {
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, "Compare the last");
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.SliderInt("##comparisonDays", ref comparisonDays, 1, 30, 170f);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, "days against the period before it");
 
         if (currentPeriodAsync.IsLoading || previousPeriodAsync.IsLoading)
         {
-            ImGui.SameLine(0, 12);
+            ImGui.SameLine(0, Theme.Px(12));
             DrawWorkingBadge();
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
 
         RequestComparisonStatistics();
 
@@ -623,35 +623,35 @@ public class StatisticsWindow : Window
         if (current == null || previous == null) return;
 
         Theme.SectionHeader("Items obtained", FontAwesomeIcon.ExchangeAlt);
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         ComparisonRow("Total items", current.TotalItems, previous.TotalItems);
         ComparisonRow("Unique items", current.TotalUnique, previous.TotalUnique);
         ComparisonRow("HQ items", current.TotalHQ, previous.TotalHQ);
         ComparisonRow("Items per day", (int)current.ItemsPerDay, (int)previous.ItemsPerDay);
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         Theme.SectionHeader("Rarity distribution", FontAwesomeIcon.Gem);
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         using (var table = ImRaii.Table("RarityComparison", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV))
         {
             if (table)
             {
-                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, 140);
-                ImGui.TableSetupColumn("Current", ImGuiTableColumnFlags.WidthFixed, 100);
-                ImGui.TableSetupColumn("Previous", ImGuiTableColumnFlags.WidthFixed, 100);
+                ImGui.TableSetupColumn("Rarity", ImGuiTableColumnFlags.WidthFixed, Theme.Px(140));
+                ImGui.TableSetupColumn("Current", ImGuiTableColumnFlags.WidthFixed, Theme.Px(100));
+                ImGui.TableSetupColumn("Previous", ImGuiTableColumnFlags.WidthFixed, Theme.Px(100));
                 ImGui.TableSetupColumn("Change", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableHeadersRow();
 
                 var allRarities = current.ByRarity.Keys.Union(previous.ByRarity.Keys).OrderByDescending(r => r);
                 foreach (var rarity in allRarities)
                 {
-                    ImGui.TableNextRow(ImGuiTableRowFlags.None, 28f);
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(28f));
                     ImGui.TableNextColumn();
                     ImGui.AlignTextToFramePadding();
                     Theme.RarityGem(rarity, 9f);
-                    ImGui.SameLine(0, 6);
+                    ImGui.SameLine(0, Theme.Px(6));
                     ImGui.TextColored(Theme.RarityColor(rarity), Theme.RarityName(rarity));
 
                     var currentCount = current.ByRarity.TryGetValue(rarity, out var cv) ? cv.Count : 0;
@@ -672,16 +672,16 @@ public class StatisticsWindow : Window
             }
         }
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         Theme.SectionHeader("Most active zones", FontAwesomeIcon.MapMarkedAlt);
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
-        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
+        var half = (ImGui.GetContentRegionAvail().X - Theme.Px(12)) / 2f;
 
-        using (Theme.Card("##ZonesNow", new Vector2(half, 170), true, Theme.Good))
+        using (Theme.Card("##ZonesNow", new Vector2(half, Theme.Px(170)), true, Theme.Good))
         {
             ImGui.TextColored(Theme.Good, $"LAST {comparisonDays} DAYS");
-            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
             var top = current.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5).ToList();
             if (top.Count > 0)
             {
@@ -692,12 +692,12 @@ public class StatisticsWindow : Window
             else ImGui.TextColored(Theme.TextFaint, "No activity");
         }
 
-        ImGui.SameLine(0, 12);
+        ImGui.SameLine(0, Theme.Px(12));
 
-        using (Theme.Card("##ZonesBefore", new Vector2(half, 170), true, Theme.TextFaint))
+        using (Theme.Card("##ZonesBefore", new Vector2(half, Theme.Px(170)), true, Theme.TextFaint))
         {
             ImGui.TextColored(Theme.TextMuted, $"PREVIOUS {comparisonDays} DAYS");
-            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
             var top = previous.ByZone.OrderByDescending(z => z.Value.TotalItems).Take(5).ToList();
             if (top.Count > 0)
             {
@@ -708,9 +708,9 @@ public class StatisticsWindow : Window
             else ImGui.TextColored(Theme.TextFaint, "No activity");
         }
 
-        ImGui.Dummy(new Vector2(0, 14));
+        ImGui.Dummy(new Vector2(0, Theme.Px(14)));
         Theme.SectionHeader("Peak activity", FontAwesomeIcon.Clock);
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
         if (current.HourlyItems.Any())
         {
@@ -720,7 +720,7 @@ public class StatisticsWindow : Window
             MetricLine(FontAwesomeIcon.ArrowUp, "Peak hour", $"{peakHour.Key:D2}:00  ·  {peakHour.Value:N0} items", Theme.Gold);
             MetricLine(FontAwesomeIcon.Equals, "Average per hour", $"{avgPerHour:F1} items", Theme.Crystal);
 
-            ImGui.Dummy(new Vector2(0, 10));
+            ImGui.Dummy(new Vector2(0, Theme.Px(10)));
 
             var blocks = Enumerable.Range(0, 6).Select(block =>
             {
@@ -738,16 +738,16 @@ public class StatisticsWindow : Window
             ImGui.TextColored(Theme.TextFaint, "Not enough data in this window");
         }
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
     }
 
     private static void ComparisonRow(string label, int currentValue, int previousValue)
     {
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextMuted, label);
-        ImGui.SameLine(190);
+        ImGui.SameLine(Theme.Px(190));
         ImGui.TextColored(Theme.Text, currentValue.ToString("N0"));
-        ImGui.SameLine(290);
+        ImGui.SameLine(Theme.Px(290));
         DrawDelta(currentValue, previousValue);
     }
 
@@ -796,23 +796,23 @@ public class StatisticsWindow : Window
         }
 
         // --- Summary cards ---------------------------------------------
-        var cardWidth = (ImGui.GetContentRegionAvail().X - 30) / 4f;
+        var cardWidth = (ImGui.GetContentRegionAvail().X - Theme.Px(30)) / 4f;
         Theme.StatCard(FontAwesomeIcon.Flag, "Duties tracked", dutyStats.Count.ToString("N0"), Theme.Crystal, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.Redo, "Total runs", dutyStats.Sum(d => d.Value.TotalAttempts).ToString("N0"), Theme.Gold, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.CheckCircle, "Completions", dutyStats.Sum(d => d.Value.Completions).ToString("N0"), Theme.Good, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.Gem, "Items looted", dutyStats.Sum(d => d.Value.TotalItemsObtained).ToString("N0"), Theme.Warn, cardWidth);
 
-        ImGui.Dummy(new Vector2(0, 12));
+        ImGui.Dummy(new Vector2(0, Theme.Px(12)));
 
         // --- View + type filter -----------------------------------------
         Theme.SegmentedControl("##DutyView", ref dutyView, "Leaderboard", "Recent runs", "Best runs");
-        ImGui.SameLine(0, 14);
+        ImGui.SameLine(0, Theme.Px(14));
         Theme.SegmentedControl("##DutyType", ref dutyTypeFilter, DutyTypes);
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
         switch (dutyView)
         {
@@ -837,29 +837,29 @@ public class StatisticsWindow : Window
         }
 
         ImGui.TextColored(Theme.TextFaint, "Click a duty to inspect its best runs");
-        ImGui.Dummy(new Vector2(0, 4));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
 
-        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        var tableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(6);
         using var table = ImRaii.Table("DutyStatsTable", 8,
             ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
             new Vector2(0, tableHeight));
         if (!table) return;
 
         ImGui.TableSetupColumn("Duty", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
-        ImGui.TableSetupColumn("Runs", ImGuiTableColumnFlags.WidthFixed, 60);
-        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
-        ImGui.TableSetupColumn("Per run", ImGuiTableColumnFlags.WidthFixed, 80);
-        ImGui.TableSetupColumn("Avg time", ImGuiTableColumnFlags.WidthFixed, 85);
-        ImGui.TableSetupColumn("Best time", ImGuiTableColumnFlags.WidthFixed, 85);
-        ImGui.TableSetupColumn("Last run", ImGuiTableColumnFlags.WidthFixed, 140);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, Theme.Px(120));
+        ImGui.TableSetupColumn("Runs", ImGuiTableColumnFlags.WidthFixed, Theme.Px(60));
+        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, Theme.Px(70));
+        ImGui.TableSetupColumn("Per run", ImGuiTableColumnFlags.WidthFixed, Theme.Px(80));
+        ImGui.TableSetupColumn("Avg time", ImGuiTableColumnFlags.WidthFixed, Theme.Px(85));
+        ImGui.TableSetupColumn("Best time", ImGuiTableColumnFlags.WidthFixed, Theme.Px(85));
+        ImGui.TableSetupColumn("Last run", ImGuiTableColumnFlags.WidthFixed, Theme.Px(140));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
         foreach (var stat in dutyStats.Where(s => selectedType == "All" || s.Value.ContentType == selectedType)
                      .OrderByDescending(s => s.Value.TotalAttempts))
         {
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 30f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(30f));
             ImGui.TableNextColumn();
 
             var isSelected = selectedDutyId == stat.Key;
@@ -916,24 +916,24 @@ public class StatisticsWindow : Window
             return;
         }
 
-        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        var tableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(6);
         using var table = ImRaii.Table("RecentRunsTable", 6,
             ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable,
             new Vector2(0, tableHeight));
         if (!table) return;
 
-        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, 150);
+        ImGui.TableSetupColumn("When", ImGuiTableColumnFlags.WidthFixed, Theme.Px(150));
         ImGui.TableSetupColumn("Duty", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 120);
-        ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, 90);
-        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, 70);
-        ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, 60);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, Theme.Px(120));
+        ImGui.TableSetupColumn("Duration", ImGuiTableColumnFlags.WidthFixed, Theme.Px(90));
+        ImGui.TableSetupColumn("Items", ImGuiTableColumnFlags.WidthFixed, Theme.Px(70));
+        ImGui.TableSetupColumn("HQ", ImGuiTableColumnFlags.WidthFixed, Theme.Px(60));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
         foreach (var run in runs)
         {
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 30f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(30f));
             ImGui.TableNextColumn();
             ImGui.AlignTextToFramePadding();
             ImGui.TextColored(Theme.TextMuted, run.StartedAt.ToString("MM/dd HH:mm:ss"));
@@ -992,22 +992,22 @@ public class StatisticsWindow : Window
         var bestRuns = bestRunsAsync.Value ?? new List<DutyRun>();
         var fastestRuns = fastestRunsAsync.Value ?? new List<DutyRun>();
 
-        var half = (ImGui.GetContentRegionAvail().X - 12) / 2f;
-        var height = ImGui.GetContentRegionAvail().Y - 10;
+        var half = (ImGui.GetContentRegionAvail().X - Theme.Px(12)) / 2f;
+        var height = ImGui.GetContentRegionAvail().Y - Theme.Px(10);
 
         using (Theme.Card("##MostItems", new Vector2(half, height), true, Theme.Gold))
         {
             Theme.IconText(FontAwesomeIcon.Gem, "MOST ITEMS", Theme.Gold);
-            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
             DrawRunRanking(bestRuns, run => run.ItemsObtained.ToString("N0"), run => $"{run.DurationMinutes:F1}m");
         }
 
-        ImGui.SameLine(0, 12);
+        ImGui.SameLine(0, Theme.Px(12));
 
         using (Theme.Card("##Fastest", new Vector2(half, height), true, Theme.Crystal))
         {
             Theme.IconText(FontAwesomeIcon.Bolt, "FASTEST CLEARS", Theme.Crystal);
-            ImGui.Dummy(new Vector2(0, 6));
+            ImGui.Dummy(new Vector2(0, Theme.Px(6)));
             DrawRunRanking(fastestRuns, run => $"{run.DurationMinutes:F1}m", run => $"{run.ItemsObtained} items");
         }
     }
@@ -1032,11 +1032,11 @@ public class StatisticsWindow : Window
             };
 
             ImGui.TextColored(medal, $"#{rank}");
-            ImGui.SameLine(40);
+            ImGui.SameLine(Theme.Px(40));
             ImGui.TextColored(Theme.Text, primary(run));
-            ImGui.SameLine(110);
+            ImGui.SameLine(Theme.Px(110));
             ImGui.TextColored(Theme.TextMuted, secondary(run));
-            ImGui.SameLine(200);
+            ImGui.SameLine(Theme.Px(200));
             ImGui.TextColored(Theme.TextFaint, run.StartedAt.ToString("MM/dd HH:mm"));
 
             rank++;
@@ -1053,25 +1053,25 @@ public class StatisticsWindow : Window
             "Dungeons, trials and raids (normal, savage and ultimate) are supported. Overworld zones and some special content have no drop table on record.",
             Theme.Crystal);
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
 
         ImGui.AlignTextToFramePadding();
         Theme.Icon(FontAwesomeIcon.Search, Theme.TextFaint);
-        ImGui.SameLine(0, 8);
-        ImGui.SetNextItemWidth(320);
+        ImGui.SameLine(0, Theme.Px(8));
+        ImGui.SetNextItemWidth(Theme.Px(320));
         if (ImGui.InputTextWithHint("##ZoneSearch", "Sastasha, Titan, Alexander...", ref zoneSearchQuery, 100,
                 ImGuiInputTextFlags.EnterReturnsTrue))
         {
             PerformZoneSearch();
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.PrimaryButton("Search", new Vector2(110, 0)))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.PrimaryButton("Search", Theme.Px(new Vector2(110, 0))))
         {
             PerformZoneSearch();
         }
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
         if (zoneSearchPerformed && zoneSearchResults.Count == 0)
         {
@@ -1089,24 +1089,24 @@ public class StatisticsWindow : Window
 
         ImGui.AlignTextToFramePadding();
         Theme.Badge($"{zoneSearchResults.Count} matches", Theme.Crystal);
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
 
-        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        var tableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(6);
         using var table = ImRaii.Table("ZoneSearchResultsTable", 4,
             ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV,
             new Vector2(0, tableHeight));
         if (!table) return;
 
         ImGui.TableSetupColumn("Zone", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 140);
-        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, 70);
-        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 130);
+        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, Theme.Px(140));
+        ImGui.TableSetupColumn("iLvl", ImGuiTableColumnFlags.WidthFixed, Theme.Px(70));
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, Theme.Px(130));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
         foreach (var result in zoneSearchResults)
         {
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 32f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(32f));
 
             ImGui.TableSetColumnIndex(0);
             ImGui.AlignTextToFramePadding();
@@ -1124,7 +1124,7 @@ public class StatisticsWindow : Window
                 ImGui.TextColored(Theme.TextFaint, "-");
 
             ImGui.TableSetColumnIndex(3);
-            if (Theme.GhostButton($"View loot##{result.ContentFinderConditionId}", new Vector2(120, 0)))
+            if (Theme.GhostButton($"View loot##{result.ContentFinderConditionId}", Theme.Px(new Vector2(120, 0))))
             {
                 plugin.LootTableWindow.IsOpen = true;
                 LoadZoneLootTable(result.ContentFinderConditionId);
@@ -1153,7 +1153,7 @@ public class StatisticsWindow : Window
 
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(ImGui.GetContentRegionAvail().X - 160, 0));
-        if (Theme.DangerButton("Clear blacklist", new Vector2(160, 0)))
+        if (Theme.DangerButton("Clear blacklist", Theme.Px(new Vector2(160, 0))))
         {
             ImGui.OpenPopup("ConfirmClearBlacklist");
         }
@@ -1168,18 +1168,18 @@ public class StatisticsWindow : Window
                 plugin.ConfigService.Save();
             });
 
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
-        var tableHeight = ImGui.GetContentRegionAvail().Y - 6;
+        var tableHeight = ImGui.GetContentRegionAvail().Y - Theme.Px(6);
         using var table = ImRaii.Table("BlacklistTable", 4,
             ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV,
             new Vector2(0, tableHeight));
         if (!table) return;
 
-        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 40);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, Theme.Px(40));
         ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 90);
-        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 110);
+        ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, Theme.Px(90));
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, Theme.Px(110));
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
@@ -1189,7 +1189,7 @@ public class StatisticsWindow : Window
         {
             var itemRow = Plugin.DataManager.GameData?.GetExcelSheet<Lumina.Excel.Sheets.Item>()?.GetRow(itemId);
 
-            ImGui.TableNextRow(ImGuiTableRowFlags.None, 34f);
+            ImGui.TableNextRow(ImGuiTableRowFlags.None, Theme.Px(34f));
 
             ImGui.TableSetColumnIndex(0);
             if (itemRow.HasValue && itemRow.Value.Icon > 0)
@@ -1208,7 +1208,7 @@ public class StatisticsWindow : Window
             {
                 var item = itemRow.Value;
                 Theme.RarityGem(item.Rarity, 9f);
-                ImGui.SameLine(0, 7);
+                ImGui.SameLine(0, Theme.Px(7));
                 ImGui.TextColored(Theme.RarityColor(item.Rarity), item.Name.ExtractText());
             }
             else
@@ -1221,7 +1221,7 @@ public class StatisticsWindow : Window
             ImGui.TextColored(Theme.TextFaint, itemId.ToString());
 
             ImGui.TableSetColumnIndex(3);
-            if (Theme.GhostButton($"Restore##Remove_{itemId}", new Vector2(100, 0), Theme.Good))
+            if (Theme.GhostButton($"Restore##Remove_{itemId}", Theme.Px(new Vector2(100, 0)), Theme.Good))
             {
                 itemsToRemove.Add(itemId);
             }
@@ -1248,19 +1248,19 @@ public class StatisticsWindow : Window
 
         Theme.SectionHeader("Your collection", FontAwesomeIcon.Database);
 
-        var cardWidth = (ImGui.GetContentRegionAvail().X - 20) / 3f;
+        var cardWidth = (ImGui.GetContentRegionAvail().X - Theme.Px(20)) / 3f;
         Theme.StatCard(FontAwesomeIcon.Gem, "Items in history", history.TotalItemsObtained.ToString("N0"), Theme.Gold, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.CalendarAlt, "Days tracked", history.DailyStatistics.Count.ToString("N0"), Theme.Crystal, cardWidth);
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         Theme.StatCard(FontAwesomeIcon.Clock, "Last updated", history.LastUpdated.ToString("MM/dd HH:mm"), Theme.Good, cardWidth);
 
-        ImGui.Dummy(new Vector2(0, 16));
+        ImGui.Dummy(new Vector2(0, Theme.Px(16)));
         Theme.SectionHeader("Export", FontAwesomeIcon.FileExport);
         ImGui.TextColored(Theme.TextMuted, "Files are written to your Documents folder.");
-        ImGui.Dummy(new Vector2(0, 8));
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
 
-        if (Theme.PrimaryButton("Export as JSON", new Vector2(190, 34)))
+        if (Theme.PrimaryButton("Export as JSON", Theme.Px(new Vector2(190, 34))))
         {
             var path = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -1268,13 +1268,13 @@ public class StatisticsWindow : Window
             plugin.HistoryService.ExportToJson(path);
             Plugin.ChatGui.Print($"[LootView] History exported to: {path}");
         }
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextFaint, "Complete history with every field");
 
-        ImGui.Dummy(new Vector2(0, 6));
+        ImGui.Dummy(new Vector2(0, Theme.Px(6)));
 
-        if (Theme.GhostButton("Export as CSV", new Vector2(190, 34)))
+        if (Theme.GhostButton("Export as CSV", Theme.Px(new Vector2(190, 34))))
         {
             var path = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -1282,20 +1282,20 @@ public class StatisticsWindow : Window
             plugin.HistoryService.ExportToCsv(path);
             Plugin.ChatGui.Print($"[LootView] History exported to: {path}");
         }
-        ImGui.SameLine(0, 10);
+        ImGui.SameLine(0, Theme.Px(10));
         ImGui.AlignTextToFramePadding();
         ImGui.TextColored(Theme.TextFaint, "Spreadsheet-friendly");
 
-        ImGui.Dummy(new Vector2(0, 18));
+        ImGui.Dummy(new Vector2(0, Theme.Px(18)));
         Theme.SectionHeader("Danger zone", FontAwesomeIcon.ExclamationTriangle);
 
         Theme.Callout(FontAwesomeIcon.Trash, "Deleting history cannot be undone",
             "Every recorded item, duty run and daily statistic is removed permanently. Export a backup first.",
             Theme.Bad);
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
 
-        if (Theme.DangerButton("Delete all history", new Vector2(200, 34)))
+        if (Theme.DangerButton("Delete all history", Theme.Px(new Vector2(200, 34))))
         {
             ImGui.OpenPopup("ConfirmClear");
         }
@@ -1310,32 +1310,32 @@ public class StatisticsWindow : Window
                 InvalidateAll();
             });
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
     }
 
     private static void DrawConfirmPopup(string id, string title, string body, string confirmLabel, Action onConfirm)
     {
-        using var style = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, new Vector2(18, 16));
+        using var style = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Theme.Px(new Vector2(18, 16)));
         var open = true;
         using var popup = ImRaii.PopupModal(id, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoTitleBar);
         if (!popup) return;
 
         Theme.IconText(FontAwesomeIcon.ExclamationTriangle, title, Theme.Warn);
-        ImGui.Dummy(new Vector2(0, 4));
-        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 360);
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + Theme.Px(360));
         ImGui.TextColored(Theme.TextMuted, body);
         ImGui.PopTextWrapPos();
 
         Theme.Rule(8f);
 
-        if (Theme.DangerButton(confirmLabel, new Vector2(210, 32)))
+        if (Theme.DangerButton(confirmLabel, Theme.Px(new Vector2(210, 32))))
         {
             onConfirm();
             ImGui.CloseCurrentPopup();
         }
 
-        ImGui.SameLine(0, 10);
-        if (Theme.GhostButton("Cancel", new Vector2(110, 32)))
+        ImGui.SameLine(0, Theme.Px(10));
+        if (Theme.GhostButton("Cancel", Theme.Px(new Vector2(110, 32))))
         {
             ImGui.CloseCurrentPopup();
         }
@@ -1437,12 +1437,12 @@ public class StatisticsWindow : Window
     private static void DrawLoading(string message)
     {
         var avail = ImGui.GetContentRegionAvail();
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - 80f) * 0.4f, 10f));
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - 26f) * 0.5f, 0));
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + Math.Max((avail.Y - Theme.Px(80f)) * 0.4f, Theme.Px(10f)));
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max((avail.X - Theme.Px(26f)) * 0.5f, 0));
 
         Theme.Spinner();
 
-        ImGui.Dummy(new Vector2(0, 10));
+        ImGui.Dummy(new Vector2(0, Theme.Px(10)));
         Theme.CenteredText(message, Theme.Text);
         Theme.CenteredText("The game keeps running while this finishes", Theme.TextFaint);
     }
@@ -1477,8 +1477,11 @@ public class StatisticsWindow : Window
         }
     }
 
+    /// <param name="size">Given at 100%, scaled here.</param>
     private void DrawItemIcon(uint iconId, float size = 24f)
     {
+        size = Theme.Px(size);
+
         if (iconId == 0)
         {
             ImGui.Dummy(new Vector2(size, size));
@@ -1539,7 +1542,7 @@ public class StatisticsWindow : Window
 
         zoneSearchResults = zoneSearchResults.OrderBy(r => r.Name).ToList();
 
-        Plugin.Log.Info($"Zone search for '{zoneSearchQuery}' found {zoneSearchResults.Count} results");
+        Plugin.Log.Debug($"Zone search for '{zoneSearchQuery}' found {zoneSearchResults.Count} results");
     }
 
     private static string GetContentTypeName(uint contentTypeId)
@@ -1561,7 +1564,7 @@ public class StatisticsWindow : Window
 
     private void LoadZoneLootTable(uint contentFinderConditionId)
     {
-        Plugin.Log.Info($"Loading loot table for ContentFinderCondition {contentFinderConditionId}");
+        Plugin.Log.Debug($"Loading loot table for ContentFinderCondition {contentFinderConditionId}");
         plugin.LootTableWindow.LoadZoneById(contentFinderConditionId);
     }
 

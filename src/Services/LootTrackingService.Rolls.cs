@@ -333,7 +333,7 @@ public partial class LootTrackingService
 
         if (key != null) roll.PlayerRolls.Remove(key);
         roll.PlayerRolls[me] = status.Value;
-        Plugin.Log.Info($"Your status on {roll.ItemName}: {status.Value.Kind}");
+        Plugin.Log.Debug($"Your status on {roll.ItemName}: {status.Value.Kind}");
         return true;
     }
 
