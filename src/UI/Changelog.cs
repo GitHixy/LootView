@@ -28,6 +28,28 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("1.6.4", "Dice reveal, a ticker and a loot jar",
+        [
+            new(NoteKind.Added, "Ticker: minimise the loot window and new drops slide in on a slim strip instead, then fade "
+                                + "out. Drag it anywhere on screen and it works out which way to grow; repeat drops add up on "
+                                + "one row, and hovering pauses it. Turn it on with the arrows button in the toolbar or in "
+                                + "Settings → General."),
+            new(NoteKind.Improved, "The roll window puts what still needs your choice on top, then results, then items you've "
+                                   + "already chosen on. Results fold into a single line once revealed, so a big haul fits, "
+                                   + "and nothing moves while your mouse is over the window."),
+            new(NoteKind.Added, "Dice reveal: when an item is resolved, everyone's roll counts up from zero together and "
+                                + "stops at its number. The lowest settle first, the last one still climbing takes the crown, "
+                                + "then the rows slide into rank order. Turn it off in Settings → Tracking."),
+            new(NoteKind.Added, "A soft chime when an item goes to someone else. The game sounds a fanfare for your own "
+                                + "wins and nothing otherwise, so lost rolls were easy to miss. It follows the game's "
+                                + "master and system volume, and has its own volume in Settings → Tracking."),
+            new(NoteKind.Added, "Loot jar: a second view for the loot window, where your drops fall into a glass jar. "
+                                + "Each item is a token with its icon, a repeat drop merges into the one already there, "
+                                + "and currencies and crystals settle as sand, one labelled layer each. Grab a token to toss "
+                                + "it around, or move the window to slosh the jar. Switch with the jar button in the toolbar, "
+                                + "or try it with Preview loot jar in Settings → General."),
+        ]),
+
         new("1.6.3", "Sharper at any UI scale",
         [
             new(NoteKind.Fixed, "With Dalamud's UI scale above 100%, the roll panel no longer stacks its text on top of "

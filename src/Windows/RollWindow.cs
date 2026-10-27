@@ -63,6 +63,77 @@ public class RollWindow : Window
     private readonly Random random = new();
 
     /// <summary>
+    /// The race a resolved item's rolls are revealed as. Every contender's number counts up from
+    /// zero together, each stopping at its roll, so the lowest settle first and the winner is the
+    /// last one still climbing. The winner then takes the crown, and the rows slide into rank order.
+    /// </summary>
+    private sealed class RollReveal
+    {
+        public DateTime Start = DateTime.Now;
+
+        /// <summary>Rows in the order players chose, so the top row doesn't give the winner away.</summary>
+        public List<string> Order = [];
+
+        /// <summary>Who can still win: the Need rolls if there are any, otherwise the Greed ones.</summary>
+        public HashSet<string> Contenders = [];
+
+        public int Top;
+        public float RaceSeconds;
+
+        public float Elapsed => (float)(DateTime.Now - Start).TotalSeconds;
+        public DateTime RaceEnd => Start.AddSeconds(RaceSeconds);
+        public bool IsOver => Elapsed >= RaceSeconds + RevealHold + RevealSlide + BarFade;
+
+        /// <summary>When the counter reaches <paramref name="value"/>, inverting its ease-out.</summary>
+        public float LockTime(int value)
+            => value >= Top ? RaceSeconds : (1f - MathF.Cbrt(1f - value / (float)Top)) * RaceSeconds;
+    }
+
+    /// <summary>One row's state at this moment of a reveal.</summary>
+    private readonly record struct RowReveal(int Shown, bool Rolling, float LockAge, bool Outranked, float Bar, float BarAlpha, float Settle, float CrownAge);
+
+    /// <summary>The crown is held on the winner where it finished before the rows re-sort.</summary>
+    private const float RevealHold = 0.55f;
+    private const float RevealSlide = 0.4f;
+    private const float BarFade = 0.6f;
+
+    private readonly Dictionary<Services.RollInfo, RollReveal> reveals = [];
+
+    /// <summary>Results already announced with the chime, or that never will be.</summary>
+    private readonly HashSet<Services.RollInfo> announced = [];
+
+    private readonly Services.RollChime chime = new();
+
+    /// <summary>How long after the mouse leaves the window the layout stays put.</summary>
+    private const float FreezeSeconds = 0.6f;
+
+    private DateTime lastHovered = DateTime.MinValue;
+    private List<Services.RollInfo> displayOrder = [];
+
+    /// <summary>Items drawn as a full card last frame, which stay full while the layout is frozen.</summary>
+    private HashSet<Services.RollInfo> fullCards = [];
+
+    /// <summary>
+    /// What still needs your choice comes first, the one closing soonest on top; then the results,
+    /// newest first; then the items you've already chosen on, waiting for everyone else.
+    /// </summary>
+    private List<Services.RollInfo> DesiredOrder(IEnumerable<Services.RollInfo> rolls) => rolls
+        .OrderBy(r => AwaitsYou(r) ? 0 : r.IsFinished ? 1 : 2)
+        .ThenBy(r => r.IsFinished ? -(r.FinishedAt?.Ticks ?? 0) : r.Deadline.Ticks)
+        .ToList();
+
+    private bool AwaitsYou(Services.RollInfo roll)
+        => !roll.IsFinished && !Services.LootTrackingService.IsRollPending(roll) && OptionsFor(roll, previewRolls.Contains(roll)).Any;
+
+    /// <summary>The order on screen, kept as it was; items new since then join at the bottom.</summary>
+    private List<Services.RollInfo> FrozenOrder(IReadOnlyList<Services.RollInfo> rolls)
+    {
+        var kept = displayOrder.Where(rolls.Contains).ToList();
+        kept.AddRange(DesiredOrder(rolls.Where(r => !kept.Contains(r))));
+        return kept;
+    }
+
+    /// <summary>
     /// Made-up items from the preview button in the settings, so the window can be checked without a
     /// duty. They live only here: the tracker never sees them and nothing is ever sent to the game.
     /// </summary>
@@ -276,6 +347,14 @@ public class RollWindow : Window
                     bursts.Remove(gone);
             }
 
+            if (reveals.Count > 0)
+            {
+                foreach (var gone in reveals.Keys.Where(r => !activeRolls.Contains(r)).ToList())
+                    reveals.Remove(gone);
+            }
+
+            announced.RemoveWhere(r => !activeRolls.Contains(r));
+
             if (activeRolls.Count == 0)
             {
                 IsOpen = false;
@@ -286,16 +365,41 @@ public class RollWindow : Window
 
             var localPlayerName = Plugin.ObjectTable.LocalPlayer?.Name.TextValue ?? "You";
 
-            // Items still waiting for your choice come first, newest on top; resolved ones sink below.
-            var ordered = activeRolls
-                .OrderBy(r => r.IsFinished)
-                .ThenByDescending(r => r.IsFinished ? r.FinishedAt : r.RollStartTime)
-                .ToList();
+            // Items waiting on you, then results, then items you've chosen on. While the mouse is over
+            // the window nothing moves: the layout waits until you look away, so a result coming in
+            // or your own click can't pull a button out from under the cursor.
+            var frozen = (DateTime.Now - lastHovered).TotalSeconds < FreezeSeconds;
+            var ordered = frozen ? FrozenOrder(activeRolls) : DesiredOrder(activeRolls);
+            displayOrder = ordered;
 
+            var drawnFull = new HashSet<Services.RollInfo>();
             foreach (var roll in ordered)
             {
-                DrawRollCard(roll, localPlayerName);
+                // A result stays a full card while it's revealed (or briefly, without the reveal),
+                // then folds into a single line.
+                var compact = roll.IsFinished && !(frozen && fullCards.Contains(roll));
+                if (compact)
+                {
+                    var reveal = RevealFor(roll, SortedRows(roll, localPlayerName));
+                    compact = reveal != null
+                        ? reveal.IsOver
+                        : roll.FinishedAt is not { } at || (DateTime.Now - at).TotalSeconds > 2.5;
+                }
+
+                if (compact)
+                {
+                    DrawResultRow(roll, localPlayerName);
+                }
+                else
+                {
+                    DrawRollCard(roll, localPlayerName);
+                    drawnFull.Add(roll);
+                }
             }
+            fullCards = drawnFull;
+
+            if (ImGui.IsWindowHovered(ImGuiHoveredFlags.ChildWindows | ImGuiHoveredFlags.AllowWhenBlockedByPopup))
+                lastHovered = DateTime.Now;
         }
         catch (Exception ex)
         {
@@ -407,12 +511,8 @@ public class RollWindow : Window
         var finished = rollInfo.IsFinished;
         var preview = previewRolls.Contains(rollInfo);
 
-        // With 24 players a row each would run off the screen, so an alliance gets a counter instead:
-        // only Need/Greed rolls and your own row are listed, and passes are summed up in one line.
         var allianceSize = preview ? null : plugin.LootTracker.AllianceSize();
-        var sortedRolls = allianceSize == null
-            ? allRolls
-            : allRolls.Where(r => Services.RollKind.IsRoll(r.RollType) || Services.LootTrackingService.SameName(r.PlayerName, localPlayerName)).ToList();
+        var sortedRolls = SortedRows(rollInfo, localPlayerName);
         var others = allianceSize != null && finished ? allRolls.Except(sortedRolls).ToList() : [];
 
         // Party members who haven't chosen yet, while the item is still open.
@@ -421,6 +521,10 @@ public class RollWindow : Window
             : (preview ? PreviewMembers().ToList() : plugin.LootTracker.PartyMemberNames())
                 .Where(n => !rollInfo.PlayerRolls.Keys.Any(k => Services.LootTrackingService.SameName(k, n)))
                 .ToList();
+
+        var reveal = RevealFor(rollInfo, sortedRolls);
+        var racing = reveal != null && reveal.Elapsed < reveal.RaceSeconds;
+        Announce(rollInfo, reveal, localPlayerName);
 
         var placeholderRow = sortedRolls.Count == 0 && waiting.Count == 0 && others.Count == 0 ? 1 : 0;
         var rowsHeight = (sortedRolls.Count + placeholderRow + (waiting.Count > 0 ? 1 : 0) + (others.Count > 0 ? 1 : 0)) * RowHeight;
@@ -512,7 +616,11 @@ public class RollWindow : Window
         }
 
         ImGui.SetCursorScreenPos(new Vector2(textX, nameY + ImGui.GetTextLineHeight() + BadgeGap));
-        if (won)
+        if (racing)
+        {
+            Theme.Badge("Rolling...", Theme.Crystal);
+        }
+        else if (won)
         {
             Theme.Badge($"Won by {rollInfo.WinnerName}", Theme.Gold);
         }
@@ -564,12 +672,25 @@ public class RollWindow : Window
         }
 
         var winnerRowY = -1f;
-        foreach (var (playerName, rollType, rollValue, isWinner) in sortedRolls)
+        for (var i = 0; i < sortedRolls.Count; i++)
         {
-            if (isWinner) winnerRowY = rowY - origin.Y;
-            DrawRollRow(dl, new Vector2(origin.X, rowY), width, playerName, rollType, rollValue, isWinner, localPlayerName);
-            rowY += RowHeight;
+            var (playerName, rollType, rollValue, isWinner) = sortedRolls[i];
+            var rowReveal = reveal is { IsOver: false } ? RowStateFor(reveal, playerName, rollType, rollValue) : (RowReveal?)null;
+
+            // While revealing, rows keep the order players chose in, then slide into rank order.
+            var slot = (float)i;
+            if (rowReveal is { } rv)
+            {
+                var revealSlot = reveal!.Order.IndexOf(playerName);
+                if (revealSlot >= 0) slot = revealSlot + (i - revealSlot) * rv.Settle;
+            }
+
+            var y = rowY + slot * RowHeight;
+            var crowned = isWinner && !racing;
+            if (crowned) winnerRowY = y - origin.Y;
+            DrawRollRow(dl, new Vector2(origin.X, y), width, playerName, rollType, rollValue, crowned, localPlayerName, rowReveal);
         }
+        rowY += sortedRolls.Count * RowHeight;
 
         if (others.Count > 0)
         {
@@ -601,10 +722,10 @@ public class RollWindow : Window
                 Theme.U32(TimerColor(rollInfo.SecondsLeft), 0.9f), 2f);
         }
 
-        if (won)
+        if (won && !racing)
         {
             var iconCenter = iconPos - origin + new Vector2(IconSize * 0.5f, IconSize * 0.5f);
-            DrawWinnerBurst(dl, rollInfo, origin, max, iconCenter, winnerRowY, rarityColor);
+            DrawWinnerBurst(dl, rollInfo, origin, max, iconCenter, winnerRowY, rarityColor, reveal?.RaceEnd ?? rollInfo.FinishedAt);
         }
 
         ImGui.SetCursorScreenPos(origin);
@@ -613,11 +734,240 @@ public class RollWindow : Window
     }
 
     /// <summary>
+    /// The rows a card lists, best roll first. With 24 players a row each would run off the screen,
+    /// so an alliance gets a counter instead: only Need/Greed rolls and your own row are listed, and
+    /// passes are summed up in one line.
+    /// </summary>
+    private List<(string PlayerName, string RollType, int RollValue, bool IsWinner)> SortedRows(Services.RollInfo roll, string localPlayerName)
+    {
+        var all = roll.GetSortedRolls().ToList();
+        var allianceSize = previewRolls.Contains(roll) ? null : plugin.LootTracker.AllianceSize();
+        return allianceSize == null
+            ? all
+            : all.Where(r => Services.RollKind.IsRoll(r.RollType) || Services.LootTrackingService.SameName(r.PlayerName, localPlayerName)).ToList();
+    }
+
+    /// <summary>
+    /// A resolved item folded into one line once its reveal is over: the item, and who took it with
+    /// what. Hovering the item shows its details, hovering the rest lists every roll.
+    /// </summary>
+    private void DrawResultRow(Services.RollInfo rollInfo, string localPlayerName)
+    {
+        using var id = ImRaii.PushId(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(rollInfo));
+        Announce(rollInfo, reveals.GetValueOrDefault(rollInfo), localPlayerName);
+
+        var dl = ImGui.GetWindowDrawList();
+        var origin = ImGui.GetCursorScreenPos();
+        var width = Math.Max(ImGui.GetContentRegionAvail().X, Theme.Px(340f));
+        var height = Math.Max(Theme.Px(30f), ImGui.GetTextLineHeight() + Theme.Px(12f));
+        var max = new Vector2(origin.X + width, origin.Y + height);
+        var rarityColor = Theme.RarityColor(rollInfo.Rarity);
+        var textY = origin.Y + (height - ImGui.GetTextLineHeight()) * 0.5f;
+
+        var winner = rollInfo.WinnerName;
+        var won = !string.IsNullOrEmpty(winner);
+        var mine = won && Services.LootTrackingService.SameName(winner, localPlayerName);
+
+        dl.AddRectFilled(origin, max, Theme.U32(Theme.Surface, 0.7f), Theme.Radius);
+        if (mine)
+        {
+            dl.AddRectFilledMultiColor(origin, max,
+                Theme.U32(Theme.Gold, 0.14f), Theme.U32(Theme.Gold, 0.02f),
+                Theme.U32(Theme.Gold, 0.02f), Theme.U32(Theme.Gold, 0.14f));
+        }
+        dl.AddRect(origin, max, Theme.U32(mine ? Theme.Gold : rarityColor, mine ? 0.6f : 0.25f), Theme.Radius, ImDrawFlags.None, 1f);
+        dl.AddRectFilled(new Vector2(origin.X, origin.Y + Theme.Px(5)), new Vector2(origin.X + Theme.Px(2.5f), max.Y - Theme.Px(5)),
+            Theme.U32(rarityColor, 0.9f), 1.5f);
+
+        // Icon, answering to hover and right-click like a full card's.
+        var icon = height - Theme.Px(8f);
+        var iconPos = new Vector2(origin.X + Theme.Px(10f), origin.Y + (height - icon) * 0.5f);
+        if (rollInfo.IconId > 0)
+        {
+            try
+            {
+                var tex = Plugin.TextureProvider
+                    .GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(rollInfo.IconId))
+                    .GetWrapOrDefault();
+                if (tex != null)
+                {
+                    dl.AddImage(tex.Handle, iconPos, iconPos + new Vector2(icon, icon));
+                    dl.AddRect(iconPos, iconPos + new Vector2(icon, icon), Theme.U32(rarityColor, 0.6f), 3f, ImDrawFlags.None, 1f);
+                    ItemUnlocks.DrawIconSeal(dl, iconPos + new Vector2(icon, icon), UnlockStatusOf(rollInfo), 11f);
+                }
+            }
+            catch { /* Ignore icon errors */ }
+        }
+
+        // Right side, from the edge inwards: seconds left on screen, then the result.
+        var right = max.X - Theme.Px(12f);
+        if (SecondsUntilHidden(rollInfo) is { } hideIn)
+        {
+            var hideText = $"{Math.Ceiling(hideIn):F0}s";
+            var hw = ImGui.CalcTextSize(hideText).X;
+            dl.AddText(new Vector2(right - hw, textY), Theme.U32(Theme.TextFaint), hideText);
+            right -= hw + Theme.Px(12f);
+        }
+
+        if (won && rollInfo.PlayerRolls.TryGetValue(winner, out var roll))
+        {
+            var value = roll.RollValue > 0 ? roll.RollValue.ToString() : "";
+            var vw = ImGui.CalcTextSize(value).X;
+            dl.AddText(new Vector2(right - vw, textY), Theme.U32(Theme.GoldBright), value);
+            right -= vw + Theme.Px(6f);
+
+            var rollColor = roll.RollType == Services.RollKind.Need ? Theme.Good : Theme.Crystal;
+            var ts = ImGui.CalcTextSize(roll.RollType);
+            var pillPad = Theme.Px(5f);
+            var pillMin = new Vector2(right - ts.X - pillPad * 2, origin.Y + Theme.Px(6f));
+            var pillMax = new Vector2(right, max.Y - Theme.Px(6f));
+            dl.AddRectFilled(pillMin, pillMax, Theme.U32(rollColor, 0.16f), (pillMax.Y - pillMin.Y) * 0.5f);
+            dl.AddText(new Vector2(pillMin.X + pillPad, textY), Theme.U32(rollColor), roll.RollType);
+            right = pillMin.X - Theme.Px(8f);
+
+            var name = mine ? "You" : winner;
+            var nameBudget = Math.Clamp(width * 0.32f, Theme.Px(60f), Theme.Px(170f));
+            var nw = Math.Min(ImGui.CalcTextSize(name).X, nameBudget);
+            Theme.ClipText(dl, new Vector2(right - nw, textY), nameBudget, name, Theme.U32(mine ? Theme.Good : Theme.Text));
+            right -= nw + Theme.Px(6f);
+
+            using (ImRaii.PushFont(UiBuilder.IconFont))
+            {
+                var glyph = FontAwesomeIcon.Crown.ToIconString();
+                var gw = ImGui.CalcTextSize(glyph).X;
+                dl.AddText(new Vector2(right - gw, textY), Theme.U32(Theme.GoldBright), glyph);
+                right -= gw;
+            }
+        }
+        else
+        {
+            var note = rollInfo.CloseReason == Services.RollCloseReason.LeftDuty ? "You left before the result"
+                : rollInfo.RolledCount > 0 ? "Closed" : "Nobody rolled";
+            var nw = ImGui.CalcTextSize(note).X;
+            dl.AddText(new Vector2(right - nw, textY), Theme.U32(Theme.TextMuted), note);
+            right -= nw;
+        }
+
+        var nameX = iconPos.X + icon + Theme.Px(9f);
+        Theme.ClipText(dl, new Vector2(nameX, textY), right - Theme.Px(10f) - nameX, rollInfo.ItemName, Theme.U32(rarityColor));
+
+        ImGui.SetCursorScreenPos(iconPos);
+        ImGui.InvisibleButton("##icon", new Vector2(icon, icon));
+        DrawItemInteractions(rollInfo, drawMenu: true);
+
+        ImGui.SetCursorScreenPos(new Vector2(iconPos.X + icon, origin.Y));
+        ImGui.InvisibleButton("##result", new Vector2(Math.Max(max.X - iconPos.X - icon, 1f), height));
+        if (ImGui.IsItemHovered())
+        {
+            var lines = rollInfo.GetSortedRolls()
+                .Select(r => $"{(r.IsWinner ? "★ " : "   ")}{r.PlayerName}  -  {r.RollType}{(Services.RollKind.IsRoll(r.RollType) && r.RollValue > 0 ? $" {r.RollValue}" : "")}");
+            Theme.Tooltip($"{rollInfo.ItemName}\n\n{string.Join("\n", lines)}");
+        }
+
+        ImGui.SetCursorScreenPos(origin);
+        ImGui.Dummy(new Vector2(width, height));
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+    }
+
+    /// <summary>
+    /// The reveal for a just-resolved item, started the first time its card is drawn. Results that
+    /// were already in when the window opened are shown as they are, without a race.
+    /// </summary>
+    private RollReveal? RevealFor(Services.RollInfo roll, List<(string PlayerName, string RollType, int RollValue, bool IsWinner)> rows)
+    {
+        if (reveals.TryGetValue(roll, out var existing))
+            return existing;
+
+        if (!plugin.Configuration.AnimateRollReveal || string.IsNullOrEmpty(roll.WinnerName) ||
+            roll.FinishedAt is not { } at || (DateTime.Now - at).TotalSeconds > 1.0)
+            return null;
+
+        var rolled = rows.Where(r => Services.RollKind.IsRoll(r.RollType) && r.RollValue > 0).ToList();
+        if (rolled.Count == 0)
+            return null;
+
+        // Need beats any Greed, so only one of the two groups races: the winner's. That is usually the
+        // Need rolls, but not when the best Need couldn't receive the item, say a unique one they own.
+        var winnerRow = rolled.FirstOrDefault(r => r.PlayerName == roll.WinnerName);
+        var group = winnerRow.PlayerName != null
+            ? winnerRow.RollType
+            : rolled.Any(r => r.RollType == Services.RollKind.Need) ? Services.RollKind.Need : Services.RollKind.Greed;
+        var contenders = rolled.Where(r => r.RollType == group).ToList();
+        var top = contenders.Max(r => r.RollValue);
+
+        var chosenOrder = roll.PlayerRolls.Keys.ToList();
+        var reveal = new RollReveal
+        {
+            Order = rows.Select(r => r.PlayerName).OrderBy(n => chosenOrder.IndexOf(n)).ToList(),
+            Contenders = contenders.Select(r => r.PlayerName).ToHashSet(),
+            Top = top,
+            // High rolls take longer to climb to, but never long enough to drag.
+            RaceSeconds = 0.8f + 1.2f * top / 99f,
+        };
+
+        reveals[roll] = reveal;
+        return reveal;
+    }
+
+    private static RowReveal RowStateFor(RollReveal reveal, string playerName, string rollType, int rollValue)
+    {
+        var t = reveal.Elapsed;
+        var race = reveal.RaceSeconds;
+        var settle = EaseInOut(Math.Clamp((t - race - RevealHold) / RevealSlide, 0f, 1f));
+        var barAlpha = 1f - Math.Clamp((t - race - RevealHold - RevealSlide) / BarFade, 0f, 1f);
+        var crownAge = t - race;
+
+        if (!Services.RollKind.IsRoll(rollType) || rollValue <= 0)
+            return new RowReveal(0, false, 99f, false, 0f, 0f, settle, crownAge);
+
+        if (!reveal.Contenders.Contains(playerName))
+        {
+            // A Greed against someone's Need: shown straight away, dimmed, out of the race.
+            return new RowReveal(rollValue, false, 99f, true, rollValue / 100f, barAlpha * 0.5f, settle, crownAge);
+        }
+
+        var lockAt = reveal.LockTime(rollValue);
+        var counter = reveal.Top * EaseOut(Math.Clamp(t / race, 0f, 1f));
+        var rolling = t < lockAt;
+        var shown = rolling ? Math.Min((int)counter, rollValue - 1) : rollValue;
+        return new RowReveal(Math.Max(shown, 0), rolling, t - lockAt, false, shown / 100f, barAlpha, settle, crownAge);
+    }
+
+    private static float EaseOut(float t) => 1f - (1f - t) * (1f - t) * (1f - t);
+
+    private static float EaseInOut(float t) => t * t * (3f - 2f * t);
+
+    /// <summary>
+    /// Chimes once for an item that went to someone else, when its result lands: at the end of the
+    /// reveal, or straight away without one. The game already sounds your own wins.
+    /// </summary>
+    private void Announce(Services.RollInfo roll, RollReveal? reveal, string localPlayerName)
+    {
+        if (!roll.IsFinished || announced.Contains(roll))
+            return;
+
+        var landsAt = reveal?.RaceEnd ?? roll.FinishedAt!.Value;
+        if (DateTime.Now < landsAt)
+            return;
+
+        announced.Add(roll);
+
+        var config = plugin.Configuration;
+        var fresh = (DateTime.Now - landsAt).TotalSeconds < 3;
+        var mine = !string.IsNullOrEmpty(roll.WinnerName) && Services.LootTrackingService.SameName(roll.WinnerName, localPlayerName);
+        if (config.ChimeOnLostRoll && fresh && !mine && roll.CloseReason != Services.RollCloseReason.LeftDuty)
+            chime.Play(config.ChimeVolume);
+    }
+
+    /// <summary>Plays the lost-roll chime at the current volume, for the button in the settings.</summary>
+    public void TestChime() => chime.Play(plugin.Configuration.ChimeVolume);
+
+    /// <summary>
     /// Plays once when a card's winner is announced: a light sweep across the card, a burst of
     /// sparks from the winner's crown and rings from the item icon. Clipped to the card.
     /// </summary>
     private void DrawWinnerBurst(ImDrawListPtr dl, Services.RollInfo rollInfo, Vector2 origin, Vector2 max,
-        Vector2 iconCenter, float winnerRowY, Vector4 rarityColor)
+        Vector2 iconCenter, float winnerRowY, Vector4 rarityColor, DateTime? announcedAt)
     {
         var config = plugin.Configuration;
         if (!config.EnableParticleEffects)
@@ -626,7 +976,8 @@ public class RollWindow : Window
         if (!bursts.TryGetValue(rollInfo, out var burst))
         {
             // Only celebrate results as they come in, not ones already on screen when the window opened.
-            if (rollInfo.FinishedAt is not { } at || (DateTime.Now - at).TotalSeconds > 1.5)
+            // After a reveal, the result comes in when the race ends.
+            if (announcedAt is not { } at || (DateTime.Now - at).TotalSeconds > 1.5)
                 return;
 
             burst = new WinnerBurst();
@@ -979,44 +1330,25 @@ public class RollWindow : Window
         _ => Theme.Crystal,
     };
 
+    private static readonly FontAwesomeIcon[] DiceFaces =
+    [
+        FontAwesomeIcon.DiceOne, FontAwesomeIcon.DiceTwo, FontAwesomeIcon.DiceThree,
+        FontAwesomeIcon.DiceFour, FontAwesomeIcon.DiceFive, FontAwesomeIcon.DiceSix,
+    ];
+
+    /// <summary>How long a number's pop lasts when it stops climbing.</summary>
+    private const float LockPopSeconds = 0.28f;
+
     private static void DrawRollRow(ImDrawListPtr dl, Vector2 origin, float width, string playerName,
-        string rollType, int rollValue, bool isWinner, string localPlayerName)
+        string rollType, int rollValue, bool isWinner, string localPlayerName, RowReveal? reveal = null)
     {
         var rowHeight = RowHeight;
         var textY = origin.Y + (rowHeight - ImGui.GetTextLineHeight()) * 0.5f;
         var x = origin.X + Theme.Px(18f);
+        var bandMin = new Vector2(origin.X + Theme.Px(10f), origin.Y + 1f);
+        var bandMax = new Vector2(origin.X + width - Theme.Px(10f), origin.Y + rowHeight - 1f);
 
-        if (isWinner)
-        {
-            // Winners get a soft brass band behind the whole row.
-            dl.AddRectFilled(
-                new Vector2(origin.X + Theme.Px(10f), origin.Y + 1f),
-                new Vector2(origin.X + width - Theme.Px(10f), origin.Y + rowHeight - 1f),
-                Theme.U32(Theme.Gold, 0.13f), 4f);
-
-            using (ImRaii.PushFont(UiBuilder.IconFont))
-            {
-                var glyph = FontAwesomeIcon.Crown.ToIconString();
-                dl.AddText(new Vector2(x, textY), Theme.U32(Theme.GoldBright), glyph);
-                x += ImGui.CalcTextSize(glyph).X + Theme.Px(7f);
-            }
-        }
-        else
-        {
-            x += Theme.Px(4f);
-        }
-
-        var isLocalPlayer = playerName.Equals(localPlayerName, StringComparison.OrdinalIgnoreCase) ||
-                            playerName.StartsWith(localPlayerName, StringComparison.OrdinalIgnoreCase);
-        var playerColor = isLocalPlayer ? Theme.Good : Services.RollKind.IsRoll(rollType) ? Theme.Text : Theme.TextMuted;
-
-        // Roll type pill and value, right aligned. Passes and non-rolls have no value.
         var isRoll = Services.RollKind.IsRoll(rollType);
-        var valueText = !isRoll ? "-" : rollValue == Services.RollKind.PendingValue ? "..." : rollValue.ToString();
-        var vw = ImGui.CalcTextSize(valueText).X;
-        var valueX = origin.X + width - Theme.Px(18f) - vw;
-        dl.AddText(new Vector2(valueX, textY), Theme.U32(isWinner ? Theme.GoldBright : isRoll ? Theme.Text : Theme.TextFaint), valueText);
-
         var rollColor = rollType switch
         {
             Services.RollKind.Need => Theme.Good,
@@ -1025,6 +1357,96 @@ public class RollWindow : Window
             Services.RollKind.Decided => Theme.Gold,
             _ => Theme.TextMuted,
         };
+
+        var racing = reveal is { } r0 && isRoll && rollValue > 0 && !r0.Outranked;
+        var dim = reveal is { Outranked: true } ? 0.55f : 1f;
+
+        // The race track: a bar filling behind the row as the number climbs, with a bright leading edge.
+        if (reveal is { } rv && isRoll && rv.BarAlpha > 0 && rv.Bar > 0)
+        {
+            var trackW = bandMax.X - bandMin.X;
+            var edgeX = bandMin.X + trackW * Math.Clamp(rv.Bar, 0f, 1f);
+            var color = isWinner ? Theme.Mix(rollColor, Theme.GoldBright, 0.6f) : rollColor;
+            dl.AddRectFilledMultiColor(bandMin, new Vector2(edgeX, bandMax.Y),
+                Theme.U32(color, 0.02f * rv.BarAlpha), Theme.U32(color, 0.16f * rv.BarAlpha),
+                Theme.U32(color, 0.16f * rv.BarAlpha), Theme.U32(color, 0.02f * rv.BarAlpha));
+            dl.AddLine(new Vector2(edgeX, bandMin.Y + 2f), new Vector2(edgeX, bandMax.Y - 2f),
+                Theme.U32(Theme.Lighten(color, 0.4f), (rv.Rolling ? 0.9f : 0.45f) * rv.BarAlpha), Math.Max(Theme.Px(1.5f), 1f));
+        }
+
+        // The slot left of the name holds the crown, or a tumbling die while the race is on. Rows
+        // that raced keep the slot until they slide into place, so their names don't jump.
+        float slotWidth;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+            slotWidth = ImGui.CalcTextSize(FontAwesomeIcon.Crown.ToIconString()).X + Theme.Px(7f);
+
+        if (isWinner)
+        {
+            // Winners get a soft brass band behind the whole row.
+            dl.AddRectFilled(bandMin, bandMax, Theme.U32(Theme.Gold, 0.13f), 4f);
+
+            // The crown drops in with a little overshoot when the race is decided.
+            var crownAge = reveal?.CrownAge ?? 99f;
+            var drop = crownAge < 0.35f ? 1f - EaseOut(crownAge / 0.35f) : 0f;
+            var scale = 1f + 0.5f * drop;
+            using (ImRaii.PushFont(UiBuilder.IconFont))
+            {
+                var glyph = FontAwesomeIcon.Crown.ToIconString();
+                var font = ImGui.GetFont();
+                var size = ImGui.GetFontSize() * scale;
+                var gs = ImGui.CalcTextSize(glyph) * scale;
+                var center = new Vector2(x + gs.X / scale * 0.5f, textY + ImGui.GetTextLineHeight() * 0.5f - Theme.Px(6f) * drop);
+                dl.AddText(font, size, center - gs * 0.5f, Theme.U32(Theme.GoldBright, 1f - drop * 0.6f), glyph);
+            }
+            x += slotWidth;
+        }
+        else if (racing && reveal is { } rr)
+        {
+            var settle = rr.Settle;
+            if (rr.Rolling || settle < 1f)
+            {
+                // Faces flick by while climbing, then the die rests and fades as the rows settle.
+                var face = rr.Rolling ? (int)(Theme.Time * 14f + playerName.Length) % 6 : (rollValue - 1) % 6;
+                var alpha = (rr.Rolling ? 0.95f : 0.5f) * (1f - settle);
+                using (ImRaii.PushFont(UiBuilder.IconFont))
+                    dl.AddText(new Vector2(x, textY), Theme.U32(rollColor, alpha), DiceFaces[face].ToIconString());
+            }
+            x += slotWidth + (Theme.Px(4f) - slotWidth) * settle;
+        }
+        else
+        {
+            x += Theme.Px(4f);
+        }
+
+        var isLocalPlayer = playerName.Equals(localPlayerName, StringComparison.OrdinalIgnoreCase) ||
+                            playerName.StartsWith(localPlayerName, StringComparison.OrdinalIgnoreCase);
+        var playerColor = isLocalPlayer ? Theme.Good : isRoll ? Theme.Text : Theme.TextMuted;
+
+        // Roll type pill and value, right aligned. Passes and non-rolls have no value. During a
+        // reveal the number counts up, and pops as it stops.
+        var shown = racing ? reveal!.Value.Shown : rollValue;
+        var valueText = !isRoll ? "-" : rollValue == Services.RollKind.PendingValue ? "..." : shown.ToString();
+
+        // Room for the widest number the value can reach, so the pill doesn't creep left as it counts.
+        var vw = ImGui.CalcTextSize(racing ? rollValue.ToString() : valueText).X;
+        var valueX = origin.X + width - Theme.Px(18f) - vw;
+        var valueColor = isWinner ? Theme.GoldBright : !isRoll ? Theme.TextFaint : racing && reveal!.Value.Rolling ? Theme.TextMuted : Theme.Text;
+
+        var pop = racing && reveal!.Value.LockAge is >= 0 and < LockPopSeconds ? 1f - reveal.Value.LockAge / LockPopSeconds : 0f;
+        if (pop > 0)
+        {
+            var scale = 1f + (isWinner ? 0.45f : 0.3f) * pop;
+            var ts0 = ImGui.CalcTextSize(valueText);
+            var center = new Vector2(valueX + vw - ts0.X * 0.5f, textY + ts0.Y * 0.5f);
+            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * scale, center - ts0 * scale * 0.5f,
+                Theme.U32(Theme.Mix(valueColor, Theme.GoldBright, pop * 0.6f)), valueText);
+        }
+        else
+        {
+            var tw = ImGui.CalcTextSize(valueText).X;
+            dl.AddText(new Vector2(valueX + vw - tw, textY), Theme.U32(valueColor, dim), valueText);
+        }
+
         var ts = ImGui.CalcTextSize(rollType);
         var pillPad = Theme.Px(6f);
         var pillRight = valueX - Theme.Px(8f);
@@ -1032,15 +1454,16 @@ public class RollWindow : Window
         var pillMax = new Vector2(pillRight, origin.Y + rowHeight - Theme.Px(3.5f));
 
         // The player's name gives way to the pill rather than running under it.
-        Theme.ClipText(dl, new Vector2(x, textY), pillMin.X - Theme.Px(6f) - x, playerName, Theme.U32(playerColor));
+        Theme.ClipText(dl, new Vector2(x, textY), pillMin.X - Theme.Px(6f) - x, playerName, Theme.U32(playerColor, dim));
 
-        dl.AddRectFilled(pillMin, pillMax, Theme.U32(rollColor, 0.16f), (pillMax.Y - pillMin.Y) * 0.5f);
-        dl.AddText(new Vector2(pillMin.X + pillPad, textY), Theme.U32(rollColor), rollType);
+        dl.AddRectFilled(pillMin, pillMax, Theme.U32(rollColor, 0.16f * dim), (pillMax.Y - pillMin.Y) * 0.5f);
+        dl.AddText(new Vector2(pillMin.X + pillPad, textY), Theme.U32(rollColor, dim), rollType);
     }
 
     public override void Dispose()
     {
         plugin.LootTracker.RollsUpdated -= OnRollsUpdated;
+        chime.Dispose();
         base.Dispose();
     }
 }

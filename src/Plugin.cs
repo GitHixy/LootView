@@ -45,6 +45,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] public static ICondition Condition { get; private set; } = null!;
     [PluginService] public static IDtrBar DtrBar { get; private set; } = null!;
     [PluginService] public static IPartyList PartyList { get; private set; } = null!;
+    [PluginService] public static IGameConfig GameConfig { get; private set; } = null!;
 
     // Plugin Services
     public LootTrackingService LootTracker { get; private set; }
@@ -60,6 +61,7 @@ public sealed class Plugin : IDalamudPlugin
     
     // Windows
     public LootWindow LootWindow { get; private set; }
+    public LootTicker LootTicker { get; private set; }
     public ConfigWindow ConfigWindow { get; private set; }
     public StatisticsWindow StatisticsWindow { get; private set; }
     public LootTableWindow LootTableWindow { get; private set; }
@@ -108,6 +110,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow = new StatisticsWindow(this);
             LootTableWindow = new LootTableWindow(this);
             RollWindow = new RollWindow(this);
+            LootTicker = new LootTicker(this);
             ChangelogWindow = new ChangelogWindow(this);
 
             // Register commands
@@ -189,6 +192,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow?.Dispose();
             LootTableWindow?.Dispose();
             RollWindow?.Dispose();
+            LootTicker?.Dispose();
             ChangelogWindow?.Dispose();
 
             // Remove commands
@@ -234,6 +238,7 @@ public sealed class Plugin : IDalamudPlugin
             StatisticsWindow?.Draw();
             LootTableWindow?.Draw();
             RollWindow?.Draw();
+            LootTicker?.Draw();
             ChangelogWindow?.Draw();
         }
         catch (Exception ex)

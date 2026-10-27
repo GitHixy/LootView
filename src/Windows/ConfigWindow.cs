@@ -228,6 +228,88 @@ public class ConfigWindow : Window
             ImGui.Unindent(Theme.Px(10));
         }
 
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+        var jarView = config.LootJarView;
+        if (Theme.ToggleRow("Loot jar", ref jarView,
+                "Instead of the list, your drops fall into a glass jar. Repeat drops merge into the item already there, "
+                + "and currencies and crystals settle as labelled sand. Switch with the jar button in the toolbar."))
+        {
+            config.LootJarView = jarView;
+            configService.Save();
+        }
+
+        ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+        if (Theme.GhostButton("Preview loot jar", Theme.Px(new Vector2(170, 28))))
+            plugin.LootWindow.PreviewJar();
+        ImGui.SameLine(0, Theme.Px(10));
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextColored(Theme.TextFaint, "Pours sample drops into the jar. Nothing is added to your loot.");
+
+        ImGui.Dummy(new Vector2(0, Theme.Px(8)));
+        var showTicker = config.ShowTicker;
+        if (Theme.ToggleRow("Ticker", ref showTicker,
+                "New drops slide in on a slim strip, stay a few seconds and fade out. Drag it anywhere: low on the screen "
+                + "new drops come in at the bottom, high up at the top, and it hugs the nearer side. Repeat drops add up on one row. "
+                + "Minimise into it with the arrows button in the loot window's toolbar. While these settings are open you can see it to place it."))
+        {
+            config.ShowTicker = showTicker;
+            configService.Save();
+        }
+
+        if (config.ShowTicker)
+        {
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            ImGui.Indent(Theme.Px(10));
+
+            var withWindow = config.TickerWithWindowOpen;
+            if (Theme.ToggleRow("Also while the loot window is open", ref withWindow,
+                    "By default the ticker stands in for the loot window and hides when you open it. "
+                    + "Turn this on to keep it running beside the window too."))
+            {
+                config.TickerWithWindowOpen = withWindow;
+                configService.Save();
+            }
+
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "Each drop stays");
+            ImGui.SameLine(0, Theme.Px(14));
+            var seconds = config.TickerSeconds;
+            if (Theme.SliderInt("##TickerSeconds", ref seconds, 3, 30, 140f))
+            {
+                config.TickerSeconds = seconds;
+                configService.Save();
+            }
+            ImGui.SameLine(0, Theme.Px(8));
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, "seconds");
+
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.Text, "At most");
+            ImGui.SameLine(0, Theme.Px(14));
+            var tickerRows = config.TickerRows;
+            if (Theme.SliderInt("##TickerRows", ref tickerRows, 1, 10, 140f))
+            {
+                config.TickerRows = tickerRows;
+                configService.Save();
+            }
+            ImGui.SameLine(0, Theme.Px(8));
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextColored(Theme.TextMuted, "rows");
+
+            ImGui.Dummy(new Vector2(0, Theme.Px(2)));
+            if (Theme.GhostButton("Preview ticker", Theme.Px(new Vector2(170, 28))))
+                plugin.LootTicker.Preview();
+            ImGui.SameLine(0, Theme.Px(8));
+            if (Theme.GhostButton("Reset ticker position", Theme.Px(new Vector2(170, 28))))
+            {
+                config.TickerX = 0.82f;
+                config.TickerY = 0.72f;
+                configService.Save();
+            }
+            ImGui.Unindent(Theme.Px(10));
+        }
+
         ImGui.Dummy(new Vector2(0, Theme.Px(8)));
         Theme.SectionHeader("Integration", FontAwesomeIcon.PlugCircleBolt);
 
@@ -359,6 +441,47 @@ public class ConfigWindow : Window
                     configService.Save();
                     plugin.NativeLootWindow.Refresh();
                 }
+            }
+
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            var animateReveal = config.AnimateRollReveal;
+            if (Theme.ToggleRow("Dice reveal", ref animateReveal,
+                    "When an item is resolved, everyone's roll counts up from zero together and stops at its number. "
+                    + "The lowest settle first, and the last one still climbing takes the crown."))
+            {
+                config.AnimateRollReveal = animateReveal;
+                configService.Save();
+            }
+
+            ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+            var chimeOnLost = config.ChimeOnLostRoll;
+            if (Theme.ToggleRow("Chime when someone else gets an item", ref chimeOnLost,
+                    "The game plays a fanfare when you win an item and nothing when you don't. This adds a soft two-note chime "
+                    + "for items that go to someone else or to nobody. It follows the game's master and system volume and mute."))
+            {
+                config.ChimeOnLostRoll = chimeOnLost;
+                configService.Save();
+            }
+
+            if (config.ChimeOnLostRoll)
+            {
+                ImGui.Dummy(new Vector2(0, Theme.Px(4)));
+                ImGui.Indent(Theme.Px(10));
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextColored(Theme.Text, "Volume");
+                ImGui.SameLine(0, Theme.Px(14));
+
+                var volume = (int)MathF.Round(config.ChimeVolume * 100f);
+                if (Theme.SliderInt("##ChimeVolume", ref volume, 5, 100))
+                {
+                    config.ChimeVolume = volume / 100f;
+                    configService.Save();
+                }
+
+                ImGui.SameLine(0, Theme.Px(10));
+                if (Theme.GhostButton("Play", Theme.Px(new Vector2(70, 0))))
+                    plugin.RollWindow.TestChime();
+                ImGui.Unindent(Theme.Px(10));
             }
 
             ImGui.Unindent(Theme.Px(10));

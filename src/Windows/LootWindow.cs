@@ -48,6 +48,7 @@ public class LootWindow : Window
     private readonly Dictionary<(uint ItemId, bool IsHq, bool IsOwn), long> earned = new();
 
     private readonly CurrencyDrawer currencyDrawer;
+    private readonly LootJar jar;
 
     /// <summary>Where the window was drawn this frame, for the currency drawer to attach to.</summary>
     private Vector2 windowPos;
@@ -57,12 +58,14 @@ public class LootWindow : Window
     {
         this.plugin = plugin;
         currencyDrawer = new CurrencyDrawer(plugin);
+        jar = new LootJar(plugin);
+        jar.Seed(plugin.LootTracker.GetFilteredLoot());
 
         // Set initial visibility from config
         IsOpen = plugin.ConfigService.Configuration.IsVisible;
 
         // Set window constraints
-        SizeConstraintMin = new Vector2(430, 260);
+        SizeConstraintMin = new Vector2(470, 260);
         SizeConstraintMax = new Vector2(1200, 900);
         Size = new Vector2(620, 430);
 
@@ -82,6 +85,18 @@ public class LootWindow : Window
         var key = (item.ItemId, item.IsHQ, item.IsOwnLoot);
         earned.TryGetValue(key, out var quantity);
         earned[key] = quantity + item.Quantity;
+
+        jar.Add(item);
+    }
+
+    /// <summary>Opens the window on the jar and pours sample drops into it.</summary>
+    public void PreviewJar()
+    {
+        var config = plugin.ConfigService.Configuration;
+        config.LootJarView = true;
+        plugin.ConfigService.Save();
+        IsOpen = true;
+        jar.Preview();
     }
 
     /// <summary>
@@ -106,7 +121,7 @@ public class LootWindow : Window
     protected override void BeforeDraw()
     {
         UpdateWindowFlags();
-        SizeConstraintMin = new Vector2(430, 260) * UiScale;
+        SizeConstraintMin = new Vector2(470, 260) * UiScale;
     }
 
     private void UpdateWindowFlags()
@@ -178,7 +193,11 @@ public class LootWindow : Window
             DrawToolbar(config);
             DrawValueStrip(config);
 
-            if (lootItems.Count == 0)
+            if (config.LootJarView)
+            {
+                jar.Draw();
+            }
+            else if (lootItems.Count == 0)
             {
                 Theme.EmptyState(
                     FontAwesomeIcon.Gem,
@@ -235,7 +254,7 @@ public class LootWindow : Window
         const float buttonSize = 28f; // IconButton scales it itself
         var btn = Theme.Px(buttonSize);
         var gap = Theme.Px(4f);
-        var buttonCount = (isInDuty ? 7 : 6) + (config.ShowCurrencyPanel ? 1 : 0);
+        var buttonCount = (isInDuty ? 9 : 8) + (config.ShowCurrencyPanel ? 1 : 0);
         var clusterWidth = buttonCount * btn + (buttonCount - 1) * gap;
 
         var right = origin.X + ImGui.GetContentRegionAvail().X;
@@ -258,9 +277,21 @@ public class LootWindow : Window
             }
 
             ImGui.SameLine();
-            if (Theme.IconButton("##ClearAll", FontAwesomeIcon.Broom, "Clear the current list", Theme.Bad, false, buttonSize))
+            var jarView = config.LootJarView;
+            if (Theme.IconButton("##JarView", jarView ? FontAwesomeIcon.ListUl : FontAwesomeIcon.Jar,
+                    jarView ? "Back to the list" : "Loot jar - watch your drops fall into a glass jar",
+                    Theme.Crystal, jarView, buttonSize))
+            {
+                config.LootJarView = !jarView;
+                plugin.ConfigService.Save();
+            }
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##ClearAll", FontAwesomeIcon.Broom,
+                    config.LootJarView ? "Clear the list and empty the jar" : "Clear the current list", Theme.Bad, false, buttonSize))
             {
                 plugin.LootTracker.ClearLoot();
+                jar.Empty();
             }
 
             ImGui.SameLine();
@@ -297,6 +328,17 @@ public class LootWindow : Window
                     var pulse = 0.5f + 0.5f * MathF.Sin(Theme.Time * 8f);
                     dl.AddCircleFilled(buttonMin + new Vector2(btn - Theme.Px(5f), Theme.Px(5f)), Theme.Px(3.5f), Theme.U32(Theme.GoldBright, 0.6f + 0.4f * pulse));
                 }
+            }
+
+            ImGui.SameLine();
+            if (Theme.IconButton("##Ticker", FontAwesomeIcon.CompressAlt,
+                    "Minimise to the ticker\nNew drops slide in on a slim strip you can drag anywhere", Theme.Crystal, false, buttonSize))
+            {
+                config.ShowTicker = true;
+                config.IsVisible = false;
+                plugin.ConfigService.Save();
+                IsOpen = false;
+                plugin.LootTicker.Reveal();
             }
 
             ImGui.SameLine();

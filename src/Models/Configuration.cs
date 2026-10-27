@@ -59,6 +59,11 @@ public class Configuration
     public bool ShowRollButtons { get; set; } = true;
     /// <summary>Hide the game's own Need/Greed window while LootView's roll buttons can stand in for it.</summary>
     public bool HideNativeRollWindow { get; set; } = true;
+    /// <summary>Reveal a resolved item's rolls as a race, the highest roll climbing last.</summary>
+    public bool AnimateRollReveal { get; set; } = true;
+    /// <summary>A soft chime when an item goes to someone else; the game only sounds your own wins.</summary>
+    public bool ChimeOnLostRoll { get; set; } = true;
+    public float ChimeVolume { get; set; } = 0.6f;
     public bool ShowDtrBar { get; set; } = true; // Show button in server info bar
 
     // Visual Effects
@@ -89,6 +94,21 @@ public class Configuration
     public bool CurrencyPanelOpen { get; set; } = false;
     /// <summary>Which side of the loot window the currency drawer slides out of.</summary>
     public bool CurrencyPanelOnLeft { get; set; } = false;
+
+    // Loot jar
+    /// <summary>Show your drops falling into a glass jar instead of the list.</summary>
+    public bool LootJarView { get; set; } = false;
+
+    // Ticker
+    /// <summary>While the loot window is closed, show each drop on a slim strip that fades out.</summary>
+    public bool ShowTicker { get; set; } = false;
+    /// <summary>Keep the ticker running while the loot window is open, not only in its place.</summary>
+    public bool TickerWithWindowOpen { get; set; } = false;
+    public int TickerSeconds { get; set; } = 8;
+    public int TickerRows { get; set; } = 5;
+    /// <summary>Where the ticker sits, as fractions of the screen: its centre across, its base edge down.</summary>
+    public float TickerX { get; set; } = 0.82f;
+    public float TickerY { get; set; } = 0.72f;
 
     // Release notes
     /// <summary>Last plugin version whose changelog the user dismissed.</summary>
