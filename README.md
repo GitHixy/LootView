@@ -4,6 +4,7 @@
 
 A loot tracker for Final Fantasy XIV, built on [Dalamud](https://github.com/goatcorp/Dalamud). It shows drops live as they happen, keeps a permanent searchable history, and turns that history into statistics about where your loot actually comes from.
 
+[![Website](https://img.shields.io/badge/Website-githixypluginffxiv.vercel.app-D6B068?logo=googlechrome&logoColor=white)](https://githixypluginffxiv.vercel.app/plugins/lootview)
 [![Patreon](https://img.shields.io/badge/Patreon-Support%20me-FF424D?logo=patreon&logoColor=white)](https://www.patreon.com/GitHixy)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9kjUjWDBkJ)
 
